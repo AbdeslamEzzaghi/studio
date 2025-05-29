@@ -9,7 +9,19 @@ import { TestCasesInputPanel } from '@/components/ide/TestCasesInputPanel';
 import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
 import { executePythonCode } from '@/ai/flows/execute-python-code';
-import { generateTestCasesForCode } from '@/ai/flows/generate-test-cases-flow';
+import { generateTestCasesForCode, type GenerateTestCasesOutput } from '@/ai/flows/generate-test-cases-flow';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const DEFAULT_CODE = `a = float(input("Enter the first number: "))
 b = float(input("Enter the second number: "))
@@ -32,10 +44,13 @@ const initialTestCases: TestCase[] = [
   { id: 'sum_10_20', name: 'Somme (10.0, 20.0)', inputs: ['10.0', '20.0'], expectedOutput: 'The sum is: 30.0' },
   { id: 'sum_neg_5_7_5', name: 'Somme (-5.0, 7.5)', inputs: ['-5.0', '7.5'], expectedOutput: 'The sum is: 2.5' },
   { id: 'sum_0_0', name: 'Somme (0, 0)', inputs: ['0', '0'], expectedOutput: 'The sum is: 0.0' },
-  { id: 'sum_decimals', name: 'Somme (1.23, 4.56)', inputs: ['1.23', '4.56'], expectedOutput: 'The sum is: 5.79' },
-  { id: 'sum_large_numbers', name: 'Somme (1000000, 2000000)', inputs: ['1000000', '2000000'], expectedOutput: 'The sum is: 3000000.0' },
 ];
 
+interface ErrorDialogContent {
+  title: string;
+  description: string;
+  codeSnapshot?: string;
+}
 
 export default function IdePage() {
   const [code, setCode] = useState<string>(DEFAULT_CODE);
@@ -45,6 +60,9 @@ export default function IdePage() {
   const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false);
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
+
+  const [errorDialogIsOpen, setErrorDialogIsOpen] = useState<boolean>(false);
+  const [errorForDialog, setErrorForDialog] = useState<ErrorDialogContent | null>(null);
 
   const handleCleanCode = useCallback(() => {
     setCode('');
@@ -76,32 +94,64 @@ export default function IdePage() {
       try {
         const joinedInputs = testCase.inputs.join('\n');
         const result = await executePythonCode({ code, testInput: joinedInputs });
-        const actual = result.simulatedOutput.trim();
-        const expected = testCase.expectedOutput.trim();
-        const passed = actual === expected;
         
-        if (!passed) {
+        if (result.errorOutput) {
           allTestsPassedOverall = false;
+          currentTestRunResults.push({
+            ...testCase,
+            actualOutput: "ERREUR (voir détails)",
+            passed: false,
+          });
+          setErrorForDialog({
+            title: "Erreur d'Exécution du Test",
+            description: result.errorOutput,
+            codeSnapshot: code,
+          });
+          setErrorDialogIsOpen(true);
+           // Stop further tests if one fails and shows a dialog, or decide if you want to continue
+           // For now, we'll continue and potentially show multiple dialogs or just the first error.
+           // Let's show only the first error for simplicity in this iteration.
+           // break; // Uncomment to stop on first error
+        } else if (result.successOutput !== null) {
+          const actual = result.successOutput.trim();
+          const expected = testCase.expectedOutput.trim();
+          const passed = actual === expected;
+          if (!passed) {
+            allTestsPassedOverall = false;
+          }
+          currentTestRunResults.push({
+            ...testCase,
+            actualOutput: actual,
+            passed,
+          });
+        } else { // Should not happen if flow is correct
+          allTestsPassedOverall = false;
+          currentTestRunResults.push({
+            ...testCase,
+            actualOutput: "Sortie IA Invalide",
+            passed: false,
+          });
         }
-
-        currentTestRunResults.push({
-          ...testCase,
-          actualOutput: actual,
-          passed,
-        });
-        setTestResults([...currentTestRunResults]);
+        setTestResults([...currentTestRunResults]); // Update results incrementally
 
       } catch (err: any) {
         allTestsPassedOverall = false;
-        const errorMsg = err.message || "Une erreur s'est produite lors de la simulation IA pour ce cas de test.";
+        const errorMsg = err.message || "Une erreur inattendue s'est produite lors de la simulation IA pour ce cas de test.";
         currentTestRunResults.push({
           ...testCase,
-          actualOutput: `ERREUR: ${errorMsg}`,
+          actualOutput: `ERREUR SYSTÈME: ${errorMsg}`,
           passed: false,
         });
         setTestResults([...currentTestRunResults]);
+        setErrorForDialog({
+            title: "Erreur Système lors du Test",
+            description: errorMsg,
+            codeSnapshot: code,
+          });
+        setErrorDialogIsOpen(true);
+        // break; // Uncomment to stop on first system error
          toast({
-          title: `Erreur dans le Test : ${testCase.name}`,
+          title: `Erreur Système dans le Test : ${testCase.name}`,
           description: errorMsg,
           variant: "destructive"
         });
@@ -164,7 +214,7 @@ export default function IdePage() {
     setIsGeneratingTests(true);
     toast({ title: 'Génération de Tests IA', description: 'L\'IA génère des cas de test pour votre code...' });
     try {
-      const result = await generateTestCasesForCode({ code });
+      const result: GenerateTestCasesOutput = await generateTestCasesForCode({ code });
       if (result.generatedTestCases && result.generatedTestCases.length > 0) {
         const newTestCases = result.generatedTestCases.map((tc, index) => ({
           id: `ai_${Date.now().toString()}_${index}`,
@@ -176,7 +226,7 @@ export default function IdePage() {
         setTestResults([]);
         toast({ title: 'Tests Générés par IA', description: `${newTestCases.length} cas de test ont été générés et chargés.` });
       } else {
-        toast({ title: 'Génération Échouée', description: 'L\'IA n\'a pas pu générer de cas de test.', variant: 'destructive' });
+        toast({ title: 'Génération Échouée', description: 'L\'IA n\'a pas pu générer de cas de test ou le format était incorrect.', variant: 'destructive' });
       }
     } catch (error: any) {
       toast({ title: 'Erreur de Génération IA', description: error.message || 'Une erreur inconnue est survenue.', variant: 'destructive' });
@@ -239,6 +289,37 @@ export default function IdePage() {
           </PanelGroup>
         </Panel>
       </PanelGroup>
+
+      {errorForDialog && (
+        <AlertDialog open={errorDialogIsOpen} onOpenChange={setErrorDialogIsOpen}>
+          <AlertDialogContent className="max-w-2xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{errorForDialog.title}</AlertDialogTitle>
+            </AlertDialogHeader>
+            <div className="mt-2 text-sm text-foreground space-y-4">
+              <p className="font-semibold">Message d'Erreur:</p>
+              <ScrollArea className="h-40 w-full rounded-md border p-2 bg-muted/50">
+                <pre className="text-xs whitespace-pre-wrap break-all font-mono">
+                  {errorForDialog.description}
+                </pre>
+              </ScrollArea>
+              {errorForDialog.codeSnapshot && (
+                <>
+                  <p className="font-semibold pt-2">Code Concerné:</p>
+                  <ScrollArea className="h-40 w-full rounded-md border p-2 bg-muted/50">
+                    <pre className="text-xs whitespace-pre-wrap break-all font-mono">
+                      {errorForDialog.codeSnapshot}
+                    </pre>
+                  </ScrollArea>
+                </>
+              )}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogAction onClick={() => setErrorDialogIsOpen(false)}>Fermer</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
