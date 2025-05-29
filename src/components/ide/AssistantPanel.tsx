@@ -1,9 +1,10 @@
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Bot } from 'lucide-react';
+import { Bot, Loader2 } from 'lucide-react'; // Added Loader2
 
 interface AssistantPanelProps {
   assistantOutput: string;
@@ -18,10 +19,11 @@ export function AssistantPanel({ assistantOutput, isLoading }: AssistantPanelPro
           <Bot className="h-5 w-5 text-primary" />
           Code Assistant
         </CardTitle>
+        {isLoading && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
       </CardHeader>
       <CardContent className="p-0 flex-1">
         <ScrollArea className="h-full w-full">
-          {isLoading ? (
+          {isLoading && !assistantOutput ? ( // Show skeletons only if loading AND no previous output
             <div className="p-4 space-y-2">
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-4 w-1/2" />

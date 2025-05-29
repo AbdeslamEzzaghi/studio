@@ -1,0 +1,74 @@
+
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { CheckCircle2, XCircle, HelpCircle, Loader2 } from 'lucide-react';
+import type { TestResult } from '@/app/page'; // Assuming TestResult type will be exported from page.tsx
+
+interface TestResultsPanelProps {
+  results: TestResult[];
+  isTesting: boolean;
+}
+
+export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) {
+  return (
+    <Card className="flex-1 flex flex-col shadow-lg">
+      <CardHeader className="p-3 border-b flex flex-row items-center justify-between">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <HelpCircle className="h-5 w-5 text-primary" />
+          Test Results
+        </CardTitle>
+        {isTesting && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+      </CardHeader>
+      <CardContent className="p-0 flex-1">
+        <ScrollArea className="h-full w-full">
+          {results.length === 0 && !isTesting ? (
+            <p className="p-4 text-sm text-muted-foreground">Run code to see test results here.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[50px]">Status</TableHead>
+                  <TableHead>Test Case</TableHead>
+                  <TableHead>Input</TableHead>
+                  <TableHead>Expected</TableHead>
+                  <TableHead>Actual</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {results.map((result) => (
+                  <TableRow key={result.id}>
+                    <TableCell>
+                      {result.passed ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-500" />
+                      )}
+                    </TableCell>
+                    <TableCell className="font-medium">{result.name}</TableCell>
+                    <TableCell><pre className="whitespace-pre-wrap text-xs">{result.input || 'N/A'}</pre></TableCell>
+                    <TableCell><pre className="whitespace-pre-wrap text-xs">{result.expectedOutput}</pre></TableCell>
+                    <TableCell><pre className="whitespace-pre-wrap text-xs">{result.actualOutput}</pre></TableCell>
+                  </TableRow>
+                ))}
+                {isTesting && results.length === 0 && (
+                   Array.from({ length: 2 }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></TableCell>
+                      <TableCell className="text-muted-foreground">Running...</TableCell>
+                      <TableCell className="text-muted-foreground">...</TableCell>
+                      <TableCell className="text-muted-foreground">...</TableCell>
+                      <TableCell className="text-muted-foreground">...</TableCell>
+                    </TableRow>
+                   ))
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  );
+}

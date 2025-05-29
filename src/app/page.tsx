@@ -7,66 +7,109 @@ import { Toolbar } from '@/components/ide/Toolbar';
 import { EditorPanel } from '@/components/ide/EditorPanel';
 import { OutputPanel } from '@/components/ide/OutputPanel';
 import { AssistantPanel } from '@/components/ide/AssistantPanel';
+import { TestResultsPanel } from '@/components/ide/TestResultsPanel'; // New
 import { useToast } from '@/hooks/use-toast';
 import { codeAssistantCodeExplanation } from '@/ai/flows/code-assistant-code-explanation';
 import { codeAssistantDebugging } from '@/ai/flows/code-assistant-debugging';
-import { executePythonCode } from '@/ai/flows/execute-python-code'; // New flow for code execution
+import { executePythonCode } from '@/ai/flows/execute-python-code';
 
-const DEFAULT_CODE = `# Welcome to CodeMuse Python IDE!
+const DEFAULT_CODE = `def greet(name):
+  return f"Hello, {name}!"
 
-# Simple print
-print("Hello, CodeMuse!")
+# Get name from input
+user_name = input("Enter your name: ")
+print(greet(user_name))
 
-# Example of a function
-def greet(name):
-  return f"Greetings, {name}!"
-
-print(greet("Developer"))
-
-# Example with input() - Note: Interactive input is simulated by the AI.
-# name = input("What's your name? ")
-# print(f"Nice to meet you, {name}!")
-
-# For loop example
-# for i in range(3):
-# print(f"Loop iteration: {i}")
-
-# You can also try the 'Explain Code' or 'Debug Code' features.
-# To debug, introduce an error, e.g.:
-# print(unknown_variable)
+# Another example
+# print("Calculating sum...")
+# num1 = 5 # or use input()
+# num2 = 10 # or use input()
+# print(f"The sum is: {num1 + num2}")
 `;
+
+export interface TestCase {
+  id: string;
+  name: string;
+  input: string; // Simulates what user would type for input()
+  expectedOutput: string;
+}
+
+export interface TestResult extends TestCase {
+  actualOutput: string;
+  passed: boolean;
+}
+
+const sampleTestCases: TestCase[] = [
+  { id: '1', name: 'Greet Alice', input: 'Alice', expectedOutput: 'Hello, Alice!' },
+  { id: '2', name: 'Greet Bob', input: 'Bob', expectedOutput: 'Hello, Bob!' },
+  { id: '3', name: 'Greet World', input: 'World', expectedOutput: 'Hello, World!' },
+  { id: '4', name: 'Greet Empty String', input: '', expectedOutput: 'Hello, !' }, // Example of a potentially "failing" case if not handled
+];
+
 
 export default function IdePage() {
   const [code, setCode] = useState<string>(DEFAULT_CODE);
-  const [output, setOutput] = useState<string>('');
+  const [output, setOutput] = useState<string>(''); // Will show detailed logs of test runs
   const [assistantOutput, setAssistantOutput] = useState<string>('');
-  const [isAssistantLoading, setIsAssistantLoading] = useState<boolean>(false); // Reused for "Run Code" AI call
+  const [testResults, setTestResults] = useState<TestResult[]>([]); // New
+  const [isProcessing, setIsProcessing] = useState<boolean>(false); // Renamed from isAssistantLoading
+  const [isTesting, setIsTesting] = useState<boolean>(false); // New for TestResultsPanel loading state
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
 
   const handleRunCode = useCallback(async () => {
     if (!code.trim()) {
-      toast({ title: 'Empty Code', description: 'Please enter some Python code to simulate.', variant: 'destructive' });
+      toast({ title: 'Empty Code', description: 'Please enter some Python code to run.', variant: 'destructive' });
       return;
     }
-    setOutput('');
-    setIsAssistantLoading(true); // Use same loading state for simplicity
+    setIsProcessing(true);
+    setIsTesting(true);
+    setOutput('Starting test execution...\n=====================\n');
+    setTestResults([]);
+    const currentTestResults: TestResult[] = [];
+    let allTestsPassed = true;
 
-    try {
-      setOutput(`Simulating execution of '${fileName}' with AI...\n---\n`);
-      const result = await executePythonCode({ code });
-      setOutput(prevOutput => `${prevOutput}${result.simulatedOutput}\n---\nAI simulation finished.\n`);
-      toast({ title: "AI Code Simulation", description: `${fileName} simulation completed.` });
-    } catch (err: any) {
-      let errorMsg = "An error occurred during AI simulation.";
-      if (err.message) {
-        errorMsg = err.message;
+    for (const testCase of sampleTestCases) {
+      setOutput(prev => `${prev}Running test: ${testCase.name} (Input: "${testCase.input}")\n`);
+      try {
+        const result = await executePythonCode({ code, testInput: testCase.input });
+        const actual = result.simulatedOutput.trim();
+        const expected = testCase.expectedOutput.trim();
+        const passed = actual === expected;
+        
+        if (!passed) {
+          allTestsPassed = false;
+        }
+
+        currentTestResults.push({
+          ...testCase,
+          actualOutput: actual,
+          passed,
+        });
+        setTestResults([...currentTestResults]); // Update incrementally for UI responsiveness
+
+        setOutput(prev => `${prev}Expected: "${expected}"\nActual: "${actual}"\nStatus: ${passed ? 'PASSED' : 'FAILED'}\n---------------------\n`);
+      } catch (err: any) {
+        allTestsPassed = false;
+        const errorMsg = err.message || "An error occurred during AI simulation for this test case.";
+        currentTestResults.push({
+          ...testCase,
+          actualOutput: `ERROR: ${errorMsg}`,
+          passed: false,
+        });
+        setTestResults([...currentTestResults]);
+        setOutput(prev => `${prev}Error for test "${testCase.name}": ${errorMsg}\n---------------------\n`);
       }
-      setOutput(prevOutput => `${prevOutput}\n---Error---\n${errorMsg}\n`);
-      toast({ title: "AI Simulation Error", description: errorMsg, variant: "destructive" });
-    } finally {
-      setIsAssistantLoading(false);
     }
+    
+    setOutput(prev => `${prev}\nTest execution finished.\nSummary: ${allTestsPassed ? 'All tests passed!' : 'Some tests failed.'}`);
+    toast({ 
+      title: "Test Execution Complete", 
+      description: `${currentTestResults.filter(r => r.passed).length}/${currentTestResults.length} tests passed.`,
+      variant: allTestsPassed ? "default" : "destructive"
+    });
+    setIsProcessing(false);
+    setIsTesting(false);
   }, [code, fileName, toast]);
 
   const handleExplainCode = async () => {
@@ -74,7 +117,7 @@ export default function IdePage() {
       toast({ title: 'Empty Code', description: 'Please enter some Python code to explain.', variant: 'destructive' });
       return;
     }
-    setIsAssistantLoading(true);
+    setIsProcessing(true);
     setAssistantOutput('');
     try {
       const result = await codeAssistantCodeExplanation({ code });
@@ -85,7 +128,7 @@ export default function IdePage() {
       setAssistantOutput('Error explaining code. See console for details.');
       toast({ title: 'Error', description: 'Failed to explain code.', variant: 'destructive' });
     }
-    setIsAssistantLoading(false);
+    setIsProcessing(false);
   };
 
   const handleDebugCode = async () => {
@@ -93,10 +136,11 @@ export default function IdePage() {
       toast({ title: 'Empty Code', description: 'Please enter some Python code to debug.', variant: 'destructive' });
       return;
     }
-    setIsAssistantLoading(true);
+    setIsProcessing(true);
     setAssistantOutput('');
-    // Pass the current output (which might contain AI simulated errors) to the debugging flow
-    const errors = output.toLowerCase().includes("error") || output.toLowerCase().includes("traceback") || output.toLowerCase().includes("simulation failed") ? output : "No specific errors detected by AI simulation, but AI can still review.";
+    // For debugging, we might want to use the general output or specific test failure output.
+    // For now, let's pass the general output which includes test logs.
+    const errors = output.toLowerCase().includes("error") || output.toLowerCase().includes("traceback") || output.toLowerCase().includes("failed") ? output : "No specific errors detected, but AI can still review.";
     try {
       const result = await codeAssistantDebugging({ code, output, errors });
       setAssistantOutput(`Debugging Suggestions:\n${result.suggestions}`);
@@ -106,7 +150,7 @@ export default function IdePage() {
       setAssistantOutput('Error generating debugging suggestions. See console for details.');
       toast({ title: 'Error', description: 'Failed to get debugging suggestions.', variant: 'destructive' });
     }
-    setIsAssistantLoading(false);
+    setIsProcessing(false);
   };
 
   const handleImportFile = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,22 +210,26 @@ export default function IdePage() {
         onExportFile={handleExportFile}
         fileName={fileName}
         onFileNameChange={setFileName}
-        isAssistantLoading={isAssistantLoading} // This state is now used for Run, Explain, Debug
+        isProcessing={isProcessing} // Renamed
       />
       <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
-        <Panel defaultSize={70} minSize={40} className="min-w-0">
+        <Panel defaultSize={60} minSize={30} className="min-w-0"> {/* Adjusted default/min size */}
           <div className="h-full flex flex-col p-4 pr-0">
             <EditorPanel code={code} onCodeChange={setCode} />
           </div>
         </Panel>
         <PanelResizeHandle className="w-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary mx-2 self-stretch" />
-        <Panel defaultSize={30} minSize={20} className="min-w-0">
-          <PanelGroup direction="vertical" className="h-full gap-4 p-4 pl-0">
-            <Panel defaultSize={60} minSize={20} className="min-h-0">
-               <AssistantPanel assistantOutput={assistantOutput} isLoading={isAssistantLoading && assistantOutput !== ''} />
+        <Panel defaultSize={40} minSize={25} className="min-w-0"> {/* Adjusted default/min size */}
+          <PanelGroup direction="vertical" className="h-full gap-2 p-4 pl-0"> {/* Reduced gap slightly */}
+            <Panel defaultSize={33} minSize={20} className="min-h-0">
+               <AssistantPanel assistantOutput={assistantOutput} isLoading={isProcessing && assistantOutput !== '' && !isTesting} />
             </Panel>
-            <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-2 self-stretch" />
-            <Panel defaultSize={40} minSize={20} className="min-h-0">
+            <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" /> {/* Reduced margin */}
+            <Panel defaultSize={34} minSize={20} className="min-h-0">
+               <TestResultsPanel results={testResults} isTesting={isTesting} />
+            </Panel>
+            <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" /> {/* Reduced margin */}
+            <Panel defaultSize={33} minSize={15} className="min-h-0">
                <OutputPanel output={output} />
             </Panel>
           </PanelGroup>
