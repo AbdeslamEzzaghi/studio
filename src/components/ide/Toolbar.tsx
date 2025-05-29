@@ -2,7 +2,7 @@
 "use client";
 
 import React from 'react';
-import { Play, Upload, Download, Loader2 } from 'lucide-react';
+import { Play, Upload, Download, Loader2, FileX2 } from 'lucide-react'; // Added FileX2
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CodeMuseLogo } from '@/components/icons';
@@ -15,6 +15,7 @@ interface ToolbarProps {
   fileName: string;
   onFileNameChange: (name: string) => void;
   isProcessing: boolean;
+  onCleanCode: () => void; // New prop
 }
 
 export function Toolbar({
@@ -24,6 +25,7 @@ export function Toolbar({
   fileName,
   onFileNameChange,
   isProcessing,
+  onCleanCode, // New prop
 }: ToolbarProps) {
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -38,6 +40,10 @@ export function Toolbar({
         <Button variant="ghost" size="sm" onClick={onRunTests} disabled={isProcessing} title="Exécuter les Tests (Ctrl+Enter)">
           {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
            Exécuter les Tests
+        </Button>
+
+        <Button variant="outline" size="sm" onClick={onCleanCode} disabled={isProcessing} title="Nettoyer le code de l'éditeur">
+          <FileX2 className="mr-2 h-4 w-4" /> Nettoyer le Code
         </Button>
         
         <div className="flex items-center gap-2 ml-4">

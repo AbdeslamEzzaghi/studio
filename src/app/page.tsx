@@ -9,23 +9,11 @@ import { TestCasesInputPanel } from '@/components/ide/TestCasesInputPanel';
 import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
 import { executePythonCode } from '@/ai/flows/execute-python-code';
-import { generateTestCasesForCode } from '@/ai/flows/generate-test-cases-flow'; // New import
+import { generateTestCasesForCode } from '@/ai/flows/generate-test-cases-flow';
 
-const DEFAULT_CODE = `# Example: Sum of two numbers
-num1_str = input("Enter first number: ")
-num2_str = input("Enter second number: ")
-
-# Check if inputs are digits before converting
-if num1_str.strip().lstrip('-+').isdigit() and num2_str.strip().lstrip('-+').isdigit():
-  num1 = int(num1_str)
-  num2 = int(num2_str)
-  print(f"The sum is: {num1 + num2}")
-elif not num1_str.strip().lstrip('-+').isdigit():
-  print(f"Invalid input for first number: {num1_str}")
-elif not num2_str.strip().lstrip('-+').isdigit():
-  print(f"Invalid input for second number: {num2_str}")
-else:
-  print("Invalid input for numbers.")
+const DEFAULT_CODE = `a = float(input("Enter the first number: "))
+b = float(input("Enter the second number: "))
+print("The sum is:", a + b)
 `;
 
 export interface TestCase {
@@ -35,17 +23,17 @@ export interface TestCase {
   expectedOutput: string;
 }
 
-export interface TestResult extends TestCase { // TestResult now directly extends TestCase
+export interface TestResult extends TestCase {
   actualOutput: string;
   passed: boolean;
 }
 
 const initialTestCases: TestCase[] = [
-  { id: 'sum_10_20', name: 'Somme (10, 20)', inputs: ['10', '20'], expectedOutput: 'The sum is: 30' },
-  { id: 'sum_neg_5_7', name: 'Somme (-5, 7)', inputs: ['-5', '7'], expectedOutput: 'The sum is: 2' },
-  { id: 'invalid_abc_5', name: 'Invalide (abc, 5)', inputs: ['abc', '5'], expectedOutput: 'Invalid input for first number: abc' },
-  { id: 'invalid_5_xyz', name: 'Invalide (5, xyz)', inputs: ['5', 'xyz'], expectedOutput: 'Invalid input for second number: xyz' },
-  { id: 'empty_inputs', name: 'Entrées vides ("", "")', inputs: ['', ''], expectedOutput: 'Invalid input for first number: ' },
+  { id: 'sum_10_20', name: 'Somme (10.0, 20.0)', inputs: ['10.0', '20.0'], expectedOutput: 'The sum is: 30.0' },
+  { id: 'sum_neg_5_7_5', name: 'Somme (-5.0, 7.5)', inputs: ['-5.0', '7.5'], expectedOutput: 'The sum is: 2.5' },
+  { id: 'sum_0_0', name: 'Somme (0, 0)', inputs: ['0', '0'], expectedOutput: 'The sum is: 0.0' },
+  { id: 'sum_decimals', name: 'Somme (1.23, 4.56)', inputs: ['1.23', '4.56'], expectedOutput: 'The sum is: 5.79' },
+  { id: 'sum_large_numbers', name: 'Somme (1000000, 2000000)', inputs: ['1000000', '2000000'], expectedOutput: 'The sum is: 3000000.0' },
 ];
 
 
@@ -54,9 +42,14 @@ export default function IdePage() {
   const [userTestCases, setUserTestCases] = useState<TestCase[]>(initialTestCases);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false); // New state
+  const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false);
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
+
+  const handleCleanCode = useCallback(() => {
+    setCode('');
+    toast({ title: 'Code Nettoyé', description: "L'éditeur a été vidé." });
+  }, [toast]);
 
   const handleRunTests = useCallback(async () => {
     if (!code.trim()) {
@@ -92,7 +85,7 @@ export default function IdePage() {
         }
 
         currentTestRunResults.push({
-          ...testCase, // Spread TestCase properties
+          ...testCase,
           actualOutput: actual,
           passed,
         });
@@ -159,7 +152,7 @@ export default function IdePage() {
 
   const handleDeleteAllTestCases = useCallback(() => {
     setUserTestCases([]);
-    setTestResults([]); // Also clear results
+    setTestResults([]);
     toast({ title: 'Cas de Test Supprimés', description: 'Tous les cas de test ont été supprimés.' });
   }, [toast]);
 
@@ -174,13 +167,13 @@ export default function IdePage() {
       const result = await generateTestCasesForCode({ code });
       if (result.generatedTestCases && result.generatedTestCases.length > 0) {
         const newTestCases = result.generatedTestCases.map((tc, index) => ({
-          id: `ai_${Date.now().toString()}_${index}`, // Ensure unique IDs
+          id: `ai_${Date.now().toString()}_${index}`,
           name: tc.name,
           inputs: tc.inputs,
           expectedOutput: tc.expectedOutput,
         }));
-        setUserTestCases(newTestCases); // Replace existing test cases
-        setTestResults([]); // Clear previous results
+        setUserTestCases(newTestCases);
+        setTestResults([]);
         toast({ title: 'Tests Générés par IA', description: `${newTestCases.length} cas de test ont été générés et chargés.` });
       } else {
         toast({ title: 'Génération Échouée', description: 'L\'IA n\'a pas pu générer de cas de test.', variant: 'destructive' });
@@ -217,7 +210,8 @@ export default function IdePage() {
         onExportFile={handleExportFile}
         fileName={fileName}
         onFileNameChange={setFileName}
-        isProcessing={isProcessing || isGeneratingTests} // Toolbar disabled during both
+        isProcessing={isProcessing || isGeneratingTests}
+        onCleanCode={handleCleanCode}
       />
       <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
         <Panel defaultSize={60} minSize={30} className="min-w-0">
