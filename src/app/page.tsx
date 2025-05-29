@@ -10,7 +10,7 @@ import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
 import { executePythonCode } from '@/ai/flows/execute-python-code';
 
-const DEFAULT_CODE = `def greet(name):
+const DEFAULT_CODE = \`def greet(name):
   message = f"Hello, {name}!"
   return message
 
@@ -26,7 +26,7 @@ print(greet(user_name))
 #   print(f"The sum is: {num1 + num2}")
 # else:
 #   print("Invalid input for numbers.")
-`;
+\`;
 
 export interface TestCase {
   id: string;
@@ -41,8 +41,8 @@ export interface TestResult extends TestCase {
 }
 
 const initialTestCases: TestCase[] = [
-  { id: '1', name: 'Greet Alice', input: 'Alice', expectedOutput: 'Hello, Alice!' },
-  { id: '2', name: 'Greet Bob', input: 'Bob', expectedOutput: 'Hello, Bob!' },
+  { id: '1', name: 'Saluer Alice', input: 'Alice', expectedOutput: 'Hello, Alice!' },
+  { id: '2', name: 'Saluer Bob', input: 'Bob', expectedOutput: 'Hello, Bob!' },
 ];
 
 
@@ -56,11 +56,11 @@ export default function IdePage() {
 
   const handleRunTests = useCallback(async () => {
     if (!code.trim()) {
-      toast({ title: 'Empty Code', description: 'Please enter some Python code to run.', variant: 'destructive' });
+      toast({ title: 'Code Vide', description: 'Veuillez entrer du code Python à exécuter.', variant: 'destructive' });
       return;
     }
     if (userTestCases.length === 0) {
-      toast({ title: 'No Test Cases', description: 'Please define at least one test case to run.', variant: 'destructive' });
+      toast({ title: 'Aucun Cas de Test', description: 'Veuillez définir au moins un cas de test à exécuter.', variant: 'destructive' });
       return;
     }
 
@@ -70,8 +70,8 @@ export default function IdePage() {
     let allTestsPassedOverall = true;
 
     toast({
-      title: "Test Execution Started",
-      description: `Running ${userTestCases.length} test case(s)...`,
+      title: "Exécution des Tests Démarrée",
+      description: \`Exécution de ${userTestCases.length} cas de test...\`,
       variant: "default"
     });
 
@@ -91,20 +91,19 @@ export default function IdePage() {
           actualOutput: actual,
           passed,
         });
-        // Update incrementally for UI responsiveness
         setTestResults([...currentTestRunResults]);
 
       } catch (err: any) {
         allTestsPassedOverall = false;
-        const errorMsg = err.message || "An error occurred during AI simulation for this test case.";
+        const errorMsg = err.message || "Une erreur s'est produite lors de la simulation IA pour ce cas de test.";
         currentTestRunResults.push({
           ...testCase,
-          actualOutput: `ERROR: ${errorMsg}`,
+          actualOutput: \`ERREUR: ${errorMsg}\`,
           passed: false,
         });
         setTestResults([...currentTestRunResults]);
          toast({
-          title: `Error in Test: ${testCase.name}`,
+          title: \`Erreur dans le Test : ${testCase.name}\`,
           description: errorMsg,
           variant: "destructive"
         });
@@ -112,8 +111,8 @@ export default function IdePage() {
     }
     
     toast({
-      title: "Test Execution Complete",
-      description: `${currentTestRunResults.filter(r => r.passed).length}/${currentTestRunResults.length} tests passed.`,
+      title: "Exécution des Tests Terminée",
+      description: \`\${currentTestRunResults.filter(r => r.passed).length}/\${currentTestRunResults.length} tests réussis.\`,
       variant: allTestsPassedOverall ? "default" : "destructive"
     });
     setIsProcessing(false);
@@ -127,30 +126,30 @@ export default function IdePage() {
       reader.onload = (e) => {
         setCode(e.target?.result as string);
         setFileName(file.name);
-        toast({ title: 'File Imported', description: `${file.name} loaded into editor.` });
+        toast({ title: 'Fichier Importé', description: \`\${file.name} chargé dans l'éditeur.\` });
       };
       reader.readAsText(file);
     }
     if (event.target) {
-      event.target.value = "";
+      event.target.value = ""; // Reset input to allow re-uploading same file
     }
   };
 
   const handleExportFile = () => {
     if (!code.trim()) {
-      toast({ title: 'Empty Code', description: 'Nothing to export.', variant: 'destructive' });
+      toast({ title: 'Code Vide', description: 'Rien à exporter.', variant: 'destructive' });
       return;
     }
     const blob = new Blob([code], { type: 'text/x-python;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = fileName.endsWith('.py') ? fileName : `${fileName}.py`;
+    a.download = fileName.endsWith('.py') ? fileName : \`\${fileName}.py\`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast({ title: 'File Exported', description: `${a.download} saved.` });
+    toast({ title: 'Fichier Exporté', description: \`\${a.download} sauvegardé.\` });
   };
 
   useEffect(() => {

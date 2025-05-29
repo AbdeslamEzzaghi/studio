@@ -20,7 +20,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
   const handleAddTestCase = () => {
     const newTestCase: TestCase = {
       id: Date.now().toString(),
-      name: `Test Case ${testCases.length + 1}`,
+      name: `Cas de Test ${testCases.length + 1}`,
       input: '',
       expectedOutput: '',
     };
@@ -40,20 +40,20 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
   return (
     <Card className="flex-1 flex flex-col shadow-lg">
       <CardHeader className="p-3 border-b">
-        <CardTitle className="text-lg">Define Test Cases</CardTitle>
+        <CardTitle className="text-lg">Définir les Cas de Test</CardTitle>
       </CardHeader>
       <CardContent className="p-0 flex-1">
         <ScrollArea className="h-full w-full p-3">
           {testCases.length === 0 && (
             <div className="text-center text-muted-foreground py-4">
-              No test cases defined. Click "Add Test Case" to begin.
+              Aucun cas de test défini. Cliquez sur "Ajouter un Cas de Test" pour commencer.
             </div>
           )}
           {testCases.map((testCase, index) => (
             <div key={testCase.id} className="mb-4 p-3 border rounded-md bg-card-foreground/5">
               <div className="flex justify-between items-center mb-2">
                 <Input
-                  placeholder={`Test Case ${index + 1} Name`}
+                  placeholder={`Nom du Cas de Test ${index + 1}`}
                   value={testCase.name}
                   onChange={(e) => handleTestCaseChange(testCase.id, 'name', e.target.value)}
                   className="text-sm font-medium flex-grow mr-2 bg-background"
@@ -64,7 +64,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
                   size="icon"
                   onClick={() => handleRemoveTestCase(testCase.id)}
                   disabled={isProcessing}
-                  title="Remove Test Case"
+                  title="Supprimer le Cas de Test"
                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -72,7 +72,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
               </div>
               <div className="space-y-2">
                 <Textarea
-                  placeholder="Test Input (simulates user input for input())"
+                  placeholder="Entrée de Test (simule l'entrée utilisateur pour input())"
                   value={testCase.input}
                   onChange={(e) => handleTestCaseChange(testCase.id, 'input', e.target.value)}
                   className="text-xs font-mono bg-background"
@@ -80,7 +80,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
                   disabled={isProcessing}
                 />
                 <Textarea
-                  placeholder="Expected Output"
+                  placeholder="Sortie Attendue"
                   value={testCase.expectedOutput}
                   onChange={(e) => handleTestCaseChange(testCase.id, 'expectedOutput', e.target.value)}
                   className="text-xs font-mono bg-background"
@@ -92,7 +92,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
           ))}
           <Button onClick={handleAddTestCase} variant="outline" size="sm" className="mt-2 w-full" disabled={isProcessing}>
             <PlusCircle className="mr-2 h-4 w-4" />
-            Add Test Case
+            Ajouter un Cas de Test
           </Button>
         </ScrollArea>
       </CardContent>
