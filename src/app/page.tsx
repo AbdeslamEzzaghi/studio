@@ -46,12 +46,14 @@ const initialTestCases: TestCase[] = [
   { id: 'sum_10_20', name: 'Somme (10.0, 20.0)', inputs: ['10.0', '20.0'], expectedOutput: 'The sum is: 30.0' },
   { id: 'sum_neg_5_7_5', name: 'Somme (-5.0, 7.5)', inputs: ['-5.0', '7.5'], expectedOutput: 'The sum is: 2.5' },
   { id: 'sum_0_0', name: 'Somme (0, 0)', inputs: ['0', '0'], expectedOutput: 'The sum is: 0.0' },
+  { id: 'multi_line_1', name: 'Entrée vide puis nombre', inputs: ['', '5.5'], expectedOutput: 'The sum is: 5.5' },
+  { id: 'multi_line_2', name: 'Deux nombres décimaux', inputs: ['1.23', '4.56'], expectedOutput: 'The sum is: 5.79' },
 ];
 
 interface ErrorDialogContent {
   title: string;
   aiExplanation: string;
-  rawError?: string; // For internal reference or fallback
+  rawError?: string;
   codeSnapshot?: string;
 }
 
@@ -59,9 +61,9 @@ export default function IdePage() {
   const [code, setCode] = useState<string>(DEFAULT_CODE);
   const [userTestCases, setUserTestCases] = useState<TestCase[]>(initialTestCases);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false); // For running tests
-  const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false); // For AI test generation
-  const [isFetchingExplanation, setIsFetchingExplanation] = useState<boolean>(false); // For AI error explanation
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false);
+  const [isFetchingExplanation, setIsFetchingExplanation] = useState<boolean>(false);
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
 
@@ -106,7 +108,7 @@ export default function IdePage() {
             actualOutput: "ERREUR (voir détails)",
             passed: false,
           });
-          setTestResults([...currentTestRunResults]);
+          setTestResults([...currentTestRunResults]); // Update results incrementally
 
           setIsFetchingExplanation(true);
           toast({
@@ -118,7 +120,7 @@ export default function IdePage() {
             const debugInfo = await codeAssistantDebugging({
               code: code,
               errors: execResult.errorOutput,
-              output: "", // The execution failed, so likely no meaningful prior output for this run
+              output: execResult.successOutput || "", 
             });
             setErrorForDialog({
               title: "Explication de l'Erreur (IA)",
@@ -128,7 +130,6 @@ export default function IdePage() {
             });
             setErrorDialogIsOpen(true);
           } catch (debugErr: any) {
-            // Fallback if AI explanation fails
             setErrorForDialog({
               title: "Erreur d'Exécution",
               aiExplanation: `L'assistant IA n'a pas pu fournir d'explication. Erreur brute:\n${execResult.errorOutput}`,
@@ -144,7 +145,7 @@ export default function IdePage() {
           } finally {
             setIsFetchingExplanation(false);
           }
-          break; // Stop on the first error to show the dialog
+          break; 
         } else if (execResult.successOutput !== null) {
           const actual = execResult.successOutput.trim();
           const expected = testCase.expectedOutput.trim();
@@ -161,13 +162,13 @@ export default function IdePage() {
           allTestsPassedOverall = false;
           currentTestRunResults.push({
             ...testCase,
-            actualOutput: "Sortie IA Invalide",
+            actualOutput: "Sortie IA Invalide (null)",
             passed: false,
           });
         }
         setTestResults([...currentTestRunResults]);
 
-      } catch (err: any) { // System error calling executePythonCode or codeAssistantDebugging
+      } catch (err: any) { 
         allTestsPassedOverall = false;
         const errorMsg = err.message || "Une erreur inattendue s'est produite lors de la simulation IA pour ce cas de test.";
         currentTestRunResults.push({
@@ -178,7 +179,7 @@ export default function IdePage() {
         setTestResults([...currentTestRunResults]);
         setErrorForDialog({
             title: "Erreur Système Critique",
-            aiExplanation: errorMsg, // Show system error directly
+            aiExplanation: errorMsg,
             codeSnapshot: code,
           });
         setErrorDialogIsOpen(true);
@@ -187,11 +188,11 @@ export default function IdePage() {
           description: errorMsg,
           variant: "destructive"
         });
-        break; // Stop on first system error
+        break;
       }
     }
     
-    if (!errorDialogIsOpen) { // Only show summary toast if no error dialog popped up
+    if (!errorDialogIsOpen) { 
         toast({
         title: "Exécution des Tests Terminée",
         description: `${currentTestRunResults.filter(r => r.passed).length}/${currentTestRunResults.length} tests réussis.`,
@@ -340,10 +341,10 @@ export default function IdePage() {
               ) : (
                 <>
                   <p className="font-semibold">Explication de l'IA :</p>
-                  <ScrollArea className="h-40 w-full rounded-md border p-2 bg-muted/50">
-                    <pre className="text-sm whitespace-pre-wrap break-all font-mono">
+                  <ScrollArea className="h-auto max-h-40 w-full rounded-md border p-3 bg-muted/50">
+                    <p className="text-sm whitespace-pre-wrap break-words">
                       {errorForDialog.aiExplanation}
-                    </pre>
+                    </p>
                   </ScrollArea>
                 </>
               )}
@@ -378,4 +379,5 @@ export default function IdePage() {
       )}
     </div>
   );
-}
+
+    
