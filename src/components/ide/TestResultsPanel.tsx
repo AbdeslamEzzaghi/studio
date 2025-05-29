@@ -14,7 +14,7 @@ interface TestResultsPanelProps {
 
 export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) {
   return (
-    <Card className="flex-1 flex flex-col shadow-lg">
+    <Card className="h-full flex flex-col shadow-lg">
       <CardHeader className="p-3 border-b flex flex-row items-center justify-between">
         <CardTitle className="text-lg flex items-center gap-2">
           <HelpCircle className="h-5 w-5 text-primary" />
@@ -22,7 +22,7 @@ export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) 
         </CardTitle>
         {isTesting && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
       </CardHeader>
-      <CardContent className="p-0 flex-1">
+      <CardContent className="p-0 flex-1"> {/* flex-1 makes CardContent take remaining space */}
         <ScrollArea className="h-full w-full">
           {results.length === 0 && !isTesting ? (
             <p className="p-4 text-sm text-muted-foreground">Exécutez le code pour voir les résultats des tests ici.</p>

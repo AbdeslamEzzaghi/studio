@@ -31,20 +31,20 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
     onTestCasesChange(testCases.filter(tc => tc.id !== id));
   };
 
-  const handleTestCaseChange = (id: string, field: keyof TestCase, value: string) => {
+  const handleTestCaseChange = (id: string, field: keyof Omit<TestCase, 'id'>, value: string) => {
     onTestCasesChange(
       testCases.map(tc => (tc.id === id ? { ...tc, [field]: value } : tc))
     );
   };
 
   return (
-    <Card className="flex-1 flex flex-col shadow-lg overflow-hidden">
+    <Card className="h-full flex flex-col shadow-lg overflow-hidden">
       <CardHeader className="p-3 border-b">
         <CardTitle className="text-lg">Définir les Cas de Test</CardTitle>
       </CardHeader>
-      <CardContent className="p-0 flex-1">
+      <CardContent className="p-0 flex-1"> {/* flex-1 makes CardContent take remaining space in the flex-col Card */}
         <ScrollArea className="h-full w-full">
-          <div className="p-3"> {/* Padding moved to an inner div */}
+          <div className="p-3">
             {testCases.length === 0 && (
               <div className="text-center text-muted-foreground py-4">
                 Aucun cas de test défini. Cliquez sur "Ajouter un Cas de Test" pour commencer.
