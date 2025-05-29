@@ -1,6 +1,8 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Toolbar } from '@/components/ide/Toolbar';
 import { EditorPanel } from '@/components/ide/EditorPanel';
 import { OutputPanel } from '@/components/ide/OutputPanel';
@@ -9,7 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { codeAssistantCodeExplanation } from '@/ai/flows/code-assistant-code-explanation';
 import { codeAssistantDebugging } from '@/ai/flows/code-assistant-debugging';
 import { AlertTriangle } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+// Alert components are imported but not directly used in the new toast. Keeping for potential future use or if other toasts use them.
+// import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const DEFAULT_CODE = `print("Hello, CodeMuse!")
 
@@ -18,6 +21,7 @@ def greet(name):
   return f"Greetings, {name}!"
 
 print(greet("Developer"))
+print(f"The year is {2024}")
 
 # Try the 'Explain Code' or 'Debug Code' features!
 # For debugging, you can introduce an error, e.g.:
@@ -34,9 +38,9 @@ export default function IdePage() {
 
   const handleRunCode = useCallback(() => {
     setOutput(''); // Clear previous output
-    // Simulate execution and safety warning
     let executionOutput = `Simulating Python execution...\nCodeMuse executed '${fileName}'.\n\n--- Output ---\n`;
-    
+    const printOutputs: string[] = [];
+
     // Basic "static analysis" for infinite loop warning
     if (code.toLowerCase().includes('while true:') || code.toLowerCase().includes('while 1:')) {
       toast({
@@ -47,34 +51,48 @@ export default function IdePage() {
       executionOutput += "Warning: Potential infinite loop detected.\n";
     }
 
-    // Simplified "execution"
-    // This is a placeholder. Real Python execution in browser is complex (e.g. Pyodide) or needs a backend.
-    // For now, we'll just echo a success message.
-    // To "run" the code, we'd ideally evaluate it.
-    // Here, let's try to capture print statements crudely if possible, or just show a generic message.
     try {
-      // This is NOT real Python execution. It's a very basic simulation.
-      // It won't handle actual Python syntax or logic beyond simple print statements.
-      const printOutputs: string[] = [];
-      const mockPrint = (...args: any[]) => {
-        printOutputs.push(args.map(String).join(' '));
-      };
-      
-      // A very limited "eval" like environment.
-      // For actual output, this would need to be far more sophisticated.
-      // For demonstration, we just state what would happen.
-      if (code.trim() === DEFAULT_CODE.trim()) {
-         mockPrint("Hello, CodeMuse!");
-         mockPrint("Greetings, Developer!");
-      } else if (code.includes("print(")) {
-        mockPrint("(Output from print statements would appear here in a real environment)");
-      }
+      const lines = code.split('\n');
+      lines.forEach(line => {
+        const trimmedLine = line.trim();
+        // Basic check for print() statements
+        if (trimmedLine.startsWith('print(') && trimmedLine.endsWith(')')) {
+          try {
+            let argContent = trimmedLine.substring(6, trimmedLine.length - 1).trim();
 
+            // Handle simple string literals (single or double quotes)
+            if ((argContent.startsWith('"') && argContent.endsWith('"')) || (argContent.startsWith("'") && argContent.endsWith("'"))) {
+              printOutputs.push(argContent.slice(1, -1));
+            }
+            // Handle basic f-strings (f"..." or f'...')
+            else if ((argContent.startsWith('f"') && argContent.endsWith('"')) || (argContent.startsWith("f'") && argContent.endsWith("'"))) {
+              let fStringContent = argContent.substring(2, argContent.length - 1);
+              // Simulate f-string by replacing {expression} with (value of expression)
+              // This is a very basic simulation and does not evaluate Python expressions.
+              fStringContent = fStringContent.replace(/\{([^}]+)\}/g, (_match, expression) => {
+                // Attempt to check if the expression is a literal number
+                if (!isNaN(parseFloat(expression)) && isFinite(Number(expression))) {
+                  return expression;
+                }
+                return `(value of ${expression.trim()})`;
+              });
+              printOutputs.push(fStringContent);
+            }
+            // Handle other cases (variables, expressions) by showing what would be printed
+            else {
+              printOutputs.push(`(output of: ${argContent})`);
+            }
+          } catch (e) {
+            // Catch errors during parsing of the print statement itself
+            printOutputs.push(`(Error parsing print statement: ${trimmedLine})`);
+          }
+        }
+      });
 
       if (printOutputs.length > 0) {
         executionOutput += printOutputs.join('\n') + '\n';
-      } else {
-        executionOutput += "(No explicit print output from this basic simulation)\n";
+      } else if (!executionOutput.includes("Warning:")) { // Avoid double messaging if already warned
+        executionOutput += "(No print() statements found or no output produced by basic simulator)\n";
       }
       executionOutput += "\n--- End of Output ---";
 
@@ -94,10 +112,11 @@ export default function IdePage() {
       title: 'Code "Executed"',
       description: (
         <div className="flex items-start gap-2">
-          <AlertTriangle className="h-5 w-5 text-yellow-500 mt-1" />
+          <AlertTriangle className="h-5 w-5 text-primary mt-1" /> 
+          {/* Changed text-yellow-500 to text-primary for theme consistency */}
           <div>
-            Execution is simulated. No actual Python code is run in this environment.
-            Always be cautious with untrusted code in real environments.
+            Execution is simulated. No actual Python code is run.
+            This is a basic attempt to show `print()` outputs.
           </div>
         </div>
       ),
@@ -130,8 +149,6 @@ export default function IdePage() {
     }
     setIsAssistantLoading(true);
     setAssistantOutput('');
-    // For "errors", we can use the current output if it looks like an error, or a default.
-    // A more robust solution would be to have a separate error state or parse output.
     const errors = output.toLowerCase().includes("error") ? output : "No specific errors detected by simulator, but AI can still review.";
     try {
       const result = await codeAssistantDebugging({ code, output, errors });
@@ -156,7 +173,6 @@ export default function IdePage() {
       };
       reader.readAsText(file);
     }
-    // Reset file input to allow importing the same file again
     if (event.target) {
       event.target.value = ""; 
     }
@@ -205,19 +221,27 @@ export default function IdePage() {
         onFileNameChange={setFileName}
         isAssistantLoading={isAssistantLoading}
       />
-      <main className="flex flex-1 p-4 gap-4 overflow-hidden">
-        <div className="flex-1 flex flex-col min-w-0"> {/* Editor Panel */}
-          <EditorPanel code={code} onCodeChange={setCode} />
-        </div>
-        <div className="w-2/5 flex flex-col gap-4 min-w-0"> {/* Right Column: Assistant and Output */}
-          <div className="flex-1 flex flex-col min-h-0"> {/* Assistant Panel */}
-            <AssistantPanel assistantOutput={assistantOutput} isLoading={isAssistantLoading} />
+      <PanelGroup direction="horizontal" className="flex-1 gap-4 overflow-hidden">
+        <Panel defaultSize={70} minSize={40} className="min-w-0">
+          <div className="h-full flex flex-col p-4 pr-0">
+            <EditorPanel code={code} onCodeChange={setCode} />
           </div>
-          <div className="h-1/3 flex flex-col min-h-0"> {/* Output Panel */}
-            <OutputPanel output={output} />
-          </div>
-        </div>
-      </main>
+        </Panel>
+        <PanelResizeHandle className="w-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary mx-2 self-stretch" />
+        <Panel defaultSize={30} minSize={20} className="min-w-0">
+          <PanelGroup direction="vertical" className="h-full gap-4 p-4 pl-0">
+            <Panel defaultSize={60} minSize={20} className="min-h-0">
+               <AssistantPanel assistantOutput={assistantOutput} isLoading={isAssistantLoading} />
+            </Panel>
+            <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-2 self-stretch" />
+            <Panel defaultSize={40} minSize={20} className="min-h-0">
+               <OutputPanel output={output} />
+            </Panel>
+          </PanelGroup>
+        </Panel>
+      </PanelGroup>
     </div>
   );
 }
+
+    
