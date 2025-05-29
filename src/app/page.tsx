@@ -10,24 +10,30 @@ import { AssistantPanel } from '@/components/ide/AssistantPanel';
 import { useToast } from '@/hooks/use-toast';
 import { codeAssistantCodeExplanation } from '@/ai/flows/code-assistant-code-explanation';
 import { codeAssistantDebugging } from '@/ai/flows/code-assistant-debugging';
-import { AlertTriangle } from 'lucide-react';
 
-const DEFAULT_CODE = `print("Hello, CodeMuse!")
+const DEFAULT_CODE = `# Welcome to CodeMuse Python IDE!
+
+# Simple print
+print("Hello, CodeMuse!")
 
 # Example of a function
 def greet(name):
   return f"Greetings, {name}!"
 
 print(greet("Developer"))
-print(f"The year is {2024}")
 
-# Try the 'Explain Code' or 'Debug Code' features!
-# For debugging, you can introduce an error, e.g.:
+# Example with input()
+# Try running this!
+name = input("What's your name? ")
+print(f"Nice to meet you, {name}!")
+
+# For loop example
+# for i in range(3):
+# print(f"Loop iteration: {i}")
+
+# You can also try the 'Explain Code' or 'Debug Code' features.
+# To debug, introduce an error, e.g.:
 # print(unknown_variable)
-
-# Example with input (Note: input() is not supported by the simulator)
-# name = input("Enter your name: ")
-# print(f"Hello, {name}")
 `;
 
 export default function IdePage() {
@@ -38,100 +44,71 @@ export default function IdePage() {
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
 
-  const handleRunCode = useCallback(() => {
+  const handleRunCode = useCallback(async () => {
     setOutput(''); // Clear previous output
-    let executionOutput = `Simulating Python execution for '${fileName}'.\nThis is a basic simulation of print() statements and does NOT fully execute Python code.\n\n--- Output ---\n`;
-    const printOutputs: string[] = [];
-    let warnings = "";
 
-    // Basic "static analysis" for infinite loop warning
-    if (code.toLowerCase().includes('while true:') || code.toLowerCase().includes('while 1:')) {
-      const infiniteLoopMsg = "Warning: Potential infinite loop detected (e.g., 'while True:'). Execution is simulated and will not actually hang.";
-      warnings += infiniteLoopMsg + "\n";
-      toast({
-        title: 'Potential Issue Detected',
-        description: infiniteLoopMsg,
-        variant: 'destructive',
-      });
+    // @ts-ignore
+    if (typeof Sk === 'undefined' || typeof Sk.configure === 'undefined') {
+      const errorMsg = "Skulpt (Python interpreter) is not loaded. Please check your internet connection or try refreshing the page.";
+      setOutput(errorMsg);
+      toast({ title: "Interpreter Error", description: errorMsg, variant: "destructive" });
+      return;
     }
 
-    // Check for input()
-    if (code.includes('input(')) {
-      const inputMsg = "Warning: The `input()` function is not supported by this simulator. Code relying on `input()` will not behave as expected.";
-      warnings += inputMsg + "\n";
-       toast({
-        title: 'Unsupported Feature',
-        description: inputMsg,
-        variant: 'default', 
-      });
+    let currentOutput = "";
+    const updateOutput = (text: string) => {
+      currentOutput += text;
+      setOutput(currentOutput);
+    };
+    
+    // @ts-ignore
+    const Sk = window.Sk;
+
+    function builtinRead(x: string) {
+      if (Sk.builtinFiles === undefined || Sk.builtinFiles["files"][x] === undefined) {
+        throw new Error("File not found: '" + x + "'");
+      }
+      return Sk.builtinFiles["files"][x];
     }
 
-    if (warnings) {
-      executionOutput += warnings + "\n";
-    }
+    Sk.configure({
+      output: (text: string) => {
+        updateOutput(text);
+      },
+      read: builtinRead,
+      inputfun: (promptText: string) => {
+        updateOutput(promptText); // Show the prompt in the output
+        const userInput = window.prompt(promptText.trimEnd()); // Get input from user
+        if (userInput !== null) {
+          updateOutput(userInput + '\\n'); // Echo user input
+        }
+        return userInput;
+      },
+      inputfunTakesPrompt: true,
+      python3: true,
+      // RetainLineNumbers will help with more accurate error reporting if Skulpt supports it well
+      // retPDB: true, // For debugging, if needed
+    });
 
     try {
-      const lines = code.split('\n');
-      lines.forEach(line => {
-        const trimmedLine = line.trim();
-        if (trimmedLine.startsWith('print(') && trimmedLine.endsWith(')')) {
-          try {
-            let argContent = trimmedLine.substring(6, trimmedLine.length - 1).trim();
-
-            if ((argContent.startsWith('"') && argContent.endsWith('"')) || (argContent.startsWith("'") && argContent.endsWith("'"))) {
-              printOutputs.push(argContent.slice(1, -1));
-            }
-            else if ((argContent.startsWith('f"') && argContent.endsWith('"')) || (argContent.startsWith("f'") && argContent.endsWith("'"))) {
-              let fStringContent = argContent.substring(2, argContent.length - 1);
-              fStringContent = fStringContent.replace(/\{([^}]+)\}/g, (_match, expression) => {
-                if (!isNaN(parseFloat(expression)) && isFinite(Number(expression))) {
-                  return expression;
-                }
-                return `(value of ${expression.trim()})`;
-              });
-              printOutputs.push(fStringContent);
-            }
-            else {
-              printOutputs.push(`(output of: ${argContent})`);
-            }
-          } catch (e) {
-            printOutputs.push(`(Error parsing print statement: ${trimmedLine})`);
-          }
+      updateOutput(`Executing '${fileName}' with Skulpt...\n---\n`);
+      await Sk.misceval.asyncToPromise(() => {
+        return Sk.importMainWithBody("<stdin>", false, code, true);
+      });
+      updateOutput("\n---\nExecution finished.\n");
+      toast({ title: "Code Executed", description: `${fileName} run successfully.` });
+    } catch (err: any) {
+      let errorMsg = "An error occurred during execution.";
+      if (err.toString) {
+        // Skulpt errors often have a lot of internal details, try to get a concise message
+        errorMsg = err.toString().replace(/\\nSuspendedExecution.*/s, '').trim();
+        if (err.tp$str !== undefined) {
+            errorMsg = err.tp$str().v; // More specific Skulpt error message
         }
-      });
-
-      if (printOutputs.length > 0) {
-        executionOutput += printOutputs.join('\n') + '\n';
-      } else if (!warnings) { 
-        executionOutput += "(No print() statements found or no output produced by basic simulator for non-conditional prints)\n";
       }
-      executionOutput += "\n--- End of Output ---";
-
-    } catch (e: any) {
-      executionOutput += `Error during simulated execution: ${e.message}\n`;
-      executionOutput += "\n--- End of Output ---";
-      toast({
-        title: 'Simulated Execution Error',
-        description: e.message,
-        variant: 'destructive',
-      });
+      updateOutput(`\n---Error---\n${errorMsg}\n`);
+      toast({ title: "Execution Error", description: errorMsg, variant: "destructive" });
     }
-    
-    setOutput(executionOutput);
-
-    toast({
-      title: 'Code "Executed" (Simulated)',
-      description: (
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="h-5 w-5 text-primary mt-1" /> 
-          <div>
-            Execution is <span className="font-semibold">simulated</span>. No actual Python code is run.
-            This is a basic attempt to show `print()` outputs and detect some patterns.
-            Features like `input()` and complex control flow are not supported.
-          </div>
-        </div>
-      ),
-    });
   }, [code, fileName, toast]);
 
   const handleExplainCode = async () => {
@@ -160,7 +137,8 @@ export default function IdePage() {
     }
     setIsAssistantLoading(true);
     setAssistantOutput('');
-    const errors = output.toLowerCase().includes("error") ? output : "No specific errors detected by simulator, but AI can still review.";
+    // Pass the current output (which might contain Skulpt errors) to the debugging flow
+    const errors = output.toLowerCase().includes("error") || output.toLowerCase().includes("traceback") ? output : "No specific errors detected by interpreter, but AI can still review.";
     try {
       const result = await codeAssistantDebugging({ code, output, errors });
       setAssistantOutput(`Debugging Suggestions:\n${result.suggestions}`);
@@ -185,7 +163,7 @@ export default function IdePage() {
       reader.readAsText(file);
     }
     if (event.target) {
-      event.target.value = ""; 
+      event.target.value = "";
     }
   };
 
@@ -205,7 +183,7 @@ export default function IdePage() {
     URL.revokeObjectURL(url);
     toast({ title: 'File Exported', description: `${a.download} saved.` });
   };
-  
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -232,7 +210,7 @@ export default function IdePage() {
         onFileNameChange={setFileName}
         isAssistantLoading={isAssistantLoading}
       />
-      <PanelGroup direction="horizontal" className="flex-1 gap-4 overflow-hidden">
+      <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
         <Panel defaultSize={70} minSize={40} className="min-w-0">
           <div className="h-full flex flex-col p-4 pr-0">
             <EditorPanel code={code} onCodeChange={setCode} />

@@ -1,6 +1,8 @@
+
 import type { Metadata } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
+import Script from 'next/script';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,6 +19,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <head>
+        <Script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/skulpt.min.js" strategy="beforeInteractive" />
+        <Script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/skulpt-stdlib.js" strategy="beforeInteractive" />
+      </head>
       <body className={`font-sans antialiased`}>
         <TooltipProvider>
           {children}
