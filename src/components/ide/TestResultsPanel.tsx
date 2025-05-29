@@ -2,7 +2,6 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-// ScrollArea import removed
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { CheckCircle2, XCircle, HelpCircle, Loader2 } from 'lucide-react';
 import type { TestResult } from '@/app/page'; 
@@ -14,7 +13,7 @@ interface TestResultsPanelProps {
 
 export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) {
   return (
-    <Card className="h-full flex flex-col shadow-lg overflow-hidden"> {/* Added overflow-hidden */}
+    <Card className="h-full flex flex-col shadow-lg overflow-hidden">
       <CardHeader className="p-3 border-b flex flex-row items-center justify-between">
         <CardTitle className="text-lg flex items-center gap-2">
           <HelpCircle className="h-5 w-5 text-primary" />
@@ -22,7 +21,7 @@ export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) 
         </CardTitle>
         {isTesting && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
       </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto"> {/* Changed: Removed ScrollArea, added overflow-y-auto. p-0 is fine since Table handles its own. */}
+      <CardContent className="flex-1 overflow-y-auto">
         {results.length === 0 && !isTesting ? (
           <p className="p-4 text-sm text-muted-foreground">Exécutez le code pour voir les résultats des tests ici.</p>
         ) : (
@@ -31,7 +30,7 @@ export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) 
               <TableRow>
                 <TableHead className="w-[50px]">Statut</TableHead>
                 <TableHead>Cas de Test</TableHead>
-                <TableHead>Entrée</TableHead>
+                <TableHead>Entrée(s)</TableHead>
                 <TableHead>Attendu</TableHead>
                 <TableHead>Réel</TableHead>
               </TableRow>
@@ -47,7 +46,11 @@ export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) 
                     )}
                   </TableCell>
                   <TableCell className="font-medium">{result.name}</TableCell>
-                  <TableCell><pre className="whitespace-pre-wrap text-xs">{result.input || 'N/A'}</pre></TableCell>
+                  <TableCell>
+                    <pre className="whitespace-pre-wrap text-xs">
+                      {result.inputs.map((inp, i) => `Ligne ${i+1}: "${inp}"`).join('\n') || 'N/A'}
+                    </pre>
+                  </TableCell>
                   <TableCell><pre className="whitespace-pre-wrap text-xs">{result.expectedOutput}</pre></TableCell>
                   <TableCell><pre className="whitespace-pre-wrap text-xs">{result.actualOutput}</pre></TableCell>
                 </TableRow>

@@ -6,8 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-// ScrollArea import removed
-import { PlusCircle, Trash2 } from 'lucide-react';
+import { PlusCircle, Trash2, MinusCircle } from 'lucide-react';
 import type { TestCase } from '@/app/page';
 
 interface TestCasesInputPanelProps {
@@ -21,7 +20,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
     const newTestCase: TestCase = {
       id: Date.now().toString(),
       name: `Cas de Test ${testCases.length + 1}`,
-      input: '',
+      inputs: [''], // Start with one empty input line
       expectedOutput: '',
     };
     onTestCasesChange([...testCases, newTestCase]);
@@ -31,18 +30,58 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
     onTestCasesChange(testCases.filter(tc => tc.id !== id));
   };
 
-  const handleTestCaseChange = (id: string, field: keyof Omit<TestCase, 'id'>, value: string) => {
+  const handleTestCaseNameChange = (id: string, value: string) => {
     onTestCasesChange(
-      testCases.map(tc => (tc.id === id ? { ...tc, [field]: value } : tc))
+      testCases.map(tc => (tc.id === id ? { ...tc, name: value } : tc))
     );
   };
+  
+  const handleTestCaseExpectedOutputChange = (id: string, value: string) => {
+    onTestCasesChange(
+      testCases.map(tc => (tc.id === id ? { ...tc, expectedOutput: value } : tc))
+    );
+  };
+
+  const handleAddInputLine = (testCaseId: string) => {
+    onTestCasesChange(
+      testCases.map(tc =>
+        tc.id === testCaseId ? { ...tc, inputs: [...tc.inputs, ''] } : tc
+      )
+    );
+  };
+
+  const handleRemoveInputLine = (testCaseId: string, inputIndex: number) => {
+    onTestCasesChange(
+      testCases.map(tc =>
+        tc.id === testCaseId
+          ? { ...tc, inputs: tc.inputs.filter((_, idx) => idx !== inputIndex) }
+          : tc
+      )
+    );
+  };
+
+  const handleInputChange = (testCaseId: string, inputIndex: number, value: string) => {
+    onTestCasesChange(
+      testCases.map(tc =>
+        tc.id === testCaseId
+          ? {
+              ...tc,
+              inputs: tc.inputs.map((input, idx) =>
+                idx === inputIndex ? value : input
+              ),
+            }
+          : tc
+      )
+    );
+  };
+
 
   return (
     <Card className="h-full flex flex-col shadow-lg overflow-hidden">
       <CardHeader className="p-3 border-b">
         <CardTitle className="text-lg">Définir les Cas de Test</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto p-3"> {/* Changed: Removed ScrollArea, added overflow-y-auto and p-3 */}
+      <CardContent className="flex-1 overflow-y-auto p-3">
         {testCases.length === 0 && (
           <div className="text-center text-muted-foreground py-4">
             Aucun cas de test défini. Cliquez sur "Ajouter un Cas de Test" pour commencer.
@@ -54,7 +93,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
               <Input
                 placeholder={`Nom du Cas de Test ${index + 1}`}
                 value={testCase.name}
-                onChange={(e) => handleTestCaseChange(testCase.id, 'name', e.target.value)}
+                onChange={(e) => handleTestCaseNameChange(testCase.id, e.target.value)}
                 className="text-sm font-medium flex-grow mr-2 bg-background"
                 disabled={isProcessing}
               />
@@ -69,19 +108,49 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
-            <div className="space-y-2">
-              <Textarea
-                placeholder="Entrée de Test (simule l'entrée utilisateur pour input())"
-                value={testCase.input}
-                onChange={(e) => handleTestCaseChange(testCase.id, 'input', e.target.value)}
-                className="text-xs font-mono bg-background"
-                rows={2}
+            
+            <div className="space-y-1 mb-2">
+              <label className="text-xs font-medium text-muted-foreground">Entrées (chaque ligne pour un `input()`):</label>
+              {testCase.inputs.map((inputValue, inputIndex) => (
+                <div key={inputIndex} className="flex items-center gap-1">
+                  <Input
+                    placeholder={`Ligne d'entrée ${inputIndex + 1}`}
+                    value={inputValue}
+                    onChange={(e) => handleInputChange(testCase.id, inputIndex, e.target.value)}
+                    className="text-xs font-mono bg-background flex-grow"
+                    disabled={isProcessing}
+                  />
+                   {testCase.inputs.length > 1 && (
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => handleRemoveInputLine(testCase.id, inputIndex)} 
+                      disabled={isProcessing}
+                      title="Supprimer cette ligne d'entrée"
+                      className="text-destructive/70 hover:text-destructive hover:bg-destructive/10 p-1 h-auto w-auto"
+                    >
+                      <MinusCircle className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <Button 
+                onClick={() => handleAddInputLine(testCase.id)} 
+                variant="outline" 
+                size="xs" // smaller button
+                className="mt-1 text-xs py-0.5 px-1.5 h-auto" // compact styling
                 disabled={isProcessing}
-              />
+              >
+                <PlusCircle className="mr-1 h-3 w-3" /> Ajouter une ligne d'entrée
+              </Button>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Sortie Attendue:</label>
               <Textarea
                 placeholder="Sortie Attendue"
                 value={testCase.expectedOutput}
-                onChange={(e) => handleTestCaseChange(testCase.id, 'expectedOutput', e.target.value)}
+                onChange={(e) => handleTestCaseExpectedOutputChange(testCase.id, e.target.value)}
                 className="text-xs font-mono bg-background"
                 rows={2}
                 disabled={isProcessing}

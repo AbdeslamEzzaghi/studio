@@ -10,45 +10,38 @@ import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
 import { executePythonCode } from '@/ai/flows/execute-python-code';
 
-const DEFAULT_CODE = `def greet(name):
-  message = f"Hello, {name}!"
-  return message
+const DEFAULT_CODE = `# Example: Sum of two numbers
+num1_str = input("Enter first number: ")
+num2_str = input("Enter second number: ")
+if num1_str.isdigit() and num2_str.isdigit():
+  num1 = int(num1_str)
+  num2 = int(num2_str)
+  print(f"The sum is: {num1 + num2}")
+else:
+  print("Invalid input for numbers.")
 
-user_name = input("Enter your name: ")
-print(greet(user_name))
-
-# Example: Sum of two numbers
-# num1_str = input("Enter first number: ")
-# num2_str = input("Enter second number: ")
-# if num1_str.isdigit() and num2_str.isdigit():
-#   num1 = int(num1_str)
-#   num2 = int(num2_str)
-#   print(f"The sum is: {num1 + num2}")
-# else:
-#   print("Invalid input for numbers.")
+# name = input("Enter your name: ")
+# print(f"Hello, {name}")
 `;
 
 export interface TestCase {
   id: string;
   name: string;
-  input: string;
+  inputs: string[]; // Changed from input: string
   expectedOutput: string;
 }
 
-export interface TestResult extends TestCase {
+export interface TestResult extends Omit<TestCase, 'inputs'> {
+  inputs: string[];
   actualOutput: string;
   passed: boolean;
 }
 
 const initialTestCases: TestCase[] = [
-  { id: '1', name: 'Saluer Alice', input: 'Alice', expectedOutput: 'Hello, Alice!' },
-  { id: '2', name: 'Saluer Bob', input: 'Bob', expectedOutput: 'Hello, Bob!' },
-  { id: '3', name: 'Test Vide', input: '', expectedOutput: 'Hello, !' },
-  { id: '4', name: 'Test Nombre', input: '123', expectedOutput: 'Hello, 123!' },
-  { id: '5', name: 'Test Phrase Longue', input: 'Un nom tres tres long pour voir', expectedOutput: 'Hello, Un nom tres tres long pour voir!' },
-  { id: '6', name: 'Saluer Charlie', input: 'Charlie', expectedOutput: 'Hello, Charlie!' },
-  { id: '7', name: 'Saluer Dave', input: 'Dave', expectedOutput: 'Hello, Dave!' },
-  { id: '8', name: 'Saluer Eve', input: 'Eve', expectedOutput: 'Hello, Eve!' },
+  { id: 'sum1', name: 'Somme (10, 20)', inputs: ['10', '20'], expectedOutput: 'The sum is: 30' },
+  { id: 'sum2', name: 'Somme (5, 7)', inputs: ['5', '7'], expectedOutput: 'The sum is: 12' },
+  { id: 'sum_invalid', name: 'Somme (abc, 5)', inputs: ['abc', '5'], expectedOutput: 'Invalid input for numbers.' },
+  { id: 'greet1', name: 'Saluer Alice', inputs: ['Alice'], expectedOutput: 'Hello, Alice' }, // Assuming default code changes or is toggled
 ];
 
 
@@ -83,7 +76,8 @@ export default function IdePage() {
 
     for (const testCase of userTestCases) {
       try {
-        const result = await executePythonCode({ code, testInput: testCase.input });
+        const joinedInputs = testCase.inputs.join('\n');
+        const result = await executePythonCode({ code, testInput: joinedInputs });
         const actual = result.simulatedOutput.trim();
         const expected = testCase.expectedOutput.trim();
         const passed = actual === expected;
@@ -93,22 +87,27 @@ export default function IdePage() {
         }
 
         currentTestRunResults.push({
-          ...testCase,
+          id: testCase.id,
+          name: testCase.name,
+          inputs: testCase.inputs,
+          expectedOutput: testCase.expectedOutput,
           actualOutput: actual,
           passed,
         });
-        // Update results incrementally for better UX
         setTestResults([...currentTestRunResults]);
 
       } catch (err: any) {
         allTestsPassedOverall = false;
         const errorMsg = err.message || "Une erreur s'est produite lors de la simulation IA pour ce cas de test.";
         currentTestRunResults.push({
-          ...testCase,
+          id: testCase.id,
+          name: testCase.name,
+          inputs: testCase.inputs,
+          expectedOutput: testCase.expectedOutput,
           actualOutput: `ERREUR: ${errorMsg}`,
           passed: false,
         });
-        setTestResults([...currentTestRunResults]); // Update results incrementally
+        setTestResults([...currentTestRunResults]);
          toast({
           title: `Erreur dans le Test : ${testCase.name}`,
           description: errorMsg,
@@ -137,7 +136,6 @@ export default function IdePage() {
       };
       reader.readAsText(file);
     }
-    // Reset input to allow re-uploading same file
     if (event.target) {
       event.target.value = ""; 
     }
@@ -160,12 +158,11 @@ export default function IdePage() {
     toast({ title: 'Fichier Exporté', description: `${a.download} sauvegardé.` });
   };
 
-  // Keyboard shortcut for running tests (Ctrl+Enter or Cmd+Enter)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
-        if (!isProcessing) { // Only run if not already processing
+        if (!isProcessing) { 
           handleRunTests();
         }
       }

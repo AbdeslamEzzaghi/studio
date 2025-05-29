@@ -3,6 +3,7 @@
 /**
  * @fileOverview A Genkit flow to simulate Python code execution using an LLM.
  * It can optionally take a specific input for test case simulation.
+ * The testInput can contain multiple lines, each corresponding to a sequential input() call.
  *
  * - executePythonCode - A function that takes Python code and returns simulated output or errors.
  * - ExecutePythonCodeInput - The input type for the executePythonCode function.
@@ -14,7 +15,7 @@ import {z} from 'genkit';
 
 const ExecutePythonCodeInputSchema = z.object({
   code: z.string().describe('The Python code to simulate.'),
-  testInput: z.string().optional().describe('A specific input string to be used if the code calls input(). This is for simulating test cases.'),
+  testInput: z.string().optional().describe('A specific input string to be used if the code calls input(). This may contain multiple lines separated by \\n, each line for a sequential input() call. This is for simulating test cases.'),
 });
 export type ExecutePythonCodeInput = z.infer<typeof ExecutePythonCodeInputSchema>;
 
@@ -45,14 +46,18 @@ You will receive a 'code' parameter and an optional 'testInput' parameter.
 \`\`\`python
 {{{code}}}
 \`\`\`
-- The 'testInput' (which represents what a user would type if the \`input()\` function is called) is: "{{{testInput}}}"
+- The 'testInput' (which represents what a user would type if the \`input()\` function is called) is:
+"{{{testInput}}}"
 
 Instructions for handling the \`input()\` function in the Python code:
-1.  If the 'testInput' parameter is provided to you (as shown above, e.g., "{{{testInput}}}"), you MUST use this exact 'testInput' value as the result of any \`input()\` call.
-2.  This is true EVEN IF the 'testInput' value is an empty string (""). An empty string is a valid and intentional input that should be used.
-3.  If the 'testInput' parameter was genuinely not provided to you by the system calling you (meaning the value for "{{{testInput}}}" above would be empty because the parameter was absent, not just an empty string), AND the Python code calls \`input()\`, then (and only then) you should state clearly: "Interactive input is not supported for general simulation. Please provide a testInput for specific scenarios." After stating this, if the code attempts to use the result of \`input()\`, you can assume it results in an empty string or handle it gracefully to simulate the rest of the code.
+1.  The 'testInput' parameter provided to you (e.g., "{{{testInput}}}") may contain multiple lines of text, separated by newline characters (\\n).
+2.  Each line in the 'testInput' corresponds to a sequential call to the \`input()\` function in the Python code.
+3.  You MUST use these lines in order. The first \`input()\` call uses the first line from "{{{testInput}}}", the second \`input()\` call uses the second line, and so on.
+4.  This is true EVEN IF a line in 'testInput' is an empty string (""). An empty string is a valid and intentional input for that specific \`input()\` call and should be used.
+5.  If the number of \`input()\` calls in the Python code exceeds the number of lines provided in 'testInput', any subsequent \`input()\` calls should effectively receive/return an empty string.
+6.  If the 'testInput' parameter was genuinely not provided to you by the system calling you (meaning the value for "{{{testInput}}}" above would be empty because the parameter was absent, not just an empty string or a string with only newlines), AND the Python code calls \`input()\`, then (and only then) you should state clearly in your simulatedOutput: "Interactive input is not supported for general simulation. Please provide a testInput for specific scenarios." After stating this, if the code attempts to use the result of \`input()\`, you can assume it results in an empty string or handle it gracefully to simulate the rest of the code.
 
-Given that the system calling you attempts to always provide a 'testInput' (even if it's an empty string from a test case), you should prioritize using the "{{{testInput}}}" value.
+Given that the system calling you attempts to always provide a 'testInput' (even if it's an empty string, or a string of multiple empty lines from a test case), you should prioritize using the "{{{testInput}}}" value as described in points 1-5.
 
 If the code executes successfully, provide only the text that would be printed to the standard output (e.g., by print() statements).
 If the code encounters an error during execution, provide a Python-like traceback or a clear description of the error.
@@ -70,7 +75,13 @@ const executePythonCodeFlow = ai.defineFlow(
     outputSchema: ExecutePythonCodeOutputSchema,
   },
   async (input: ExecutePythonCodeInput) => {
-    const {output} = await prompt(input);
+    // Ensure testInput is passed, even if it's an empty string from the UI.
+    // The prompt handles cases where testInput might be "" vs. genuinely undefined.
+    const effectiveInput = {
+        ...input,
+        testInput: input.testInput === undefined ? "" : input.testInput, 
+    };
+    const {output} = await prompt(effectiveInput);
     return {
       simulatedOutput: output?.simulatedOutput || "AI simulation failed or produced no output.",
     };
