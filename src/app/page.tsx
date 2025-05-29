@@ -10,6 +10,7 @@ import { AssistantPanel } from '@/components/ide/AssistantPanel';
 import { useToast } from '@/hooks/use-toast';
 import { codeAssistantCodeExplanation } from '@/ai/flows/code-assistant-code-explanation';
 import { codeAssistantDebugging } from '@/ai/flows/code-assistant-debugging';
+import { executePythonCode } from '@/ai/flows/execute-python-code'; // New flow for code execution
 
 const DEFAULT_CODE = `# Welcome to CodeMuse Python IDE!
 
@@ -22,8 +23,7 @@ def greet(name):
 
 print(greet("Developer"))
 
-# Example with input()
-# Try running this!
+# Example with input() - Note: Interactive input is simulated by the AI.
 # name = input("What's your name? ")
 # print(f"Nice to meet you, {name}!")
 
@@ -40,72 +40,32 @@ export default function IdePage() {
   const [code, setCode] = useState<string>(DEFAULT_CODE);
   const [output, setOutput] = useState<string>('');
   const [assistantOutput, setAssistantOutput] = useState<string>('');
-  const [isAssistantLoading, setIsAssistantLoading] = useState<boolean>(false);
+  const [isAssistantLoading, setIsAssistantLoading] = useState<boolean>(false); // Reused for "Run Code" AI call
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
 
   const handleRunCode = useCallback(async () => {
-    setOutput(''); // Clear previous output
-
-    if (!window.Sk || typeof window.Sk.configure !== 'function') {
-      const errorMsg = "Skulpt (Python interpreter) is not loaded or not yet ready. Please check your internet connection or try refreshing the page.";
-      setOutput(errorMsg);
-      toast({ title: "Interpreter Error", description: errorMsg, variant: "destructive" });
+    if (!code.trim()) {
+      toast({ title: 'Empty Code', description: 'Please enter some Python code to simulate.', variant: 'destructive' });
       return;
     }
-
-    const Sk = window.Sk; // Sk is now typed SkulptStatic | undefined, but check ensures it's SkulptStatic here.
-
-    let currentOutput = "";
-    const updateOutput = (text: string) => {
-      currentOutput += text;
-      setOutput(currentOutput);
-    };
-    
-    function builtinRead(x: string) {
-      if (Sk.builtinFiles === undefined || Sk.builtinFiles["files"][x] === undefined) {
-        throw new Error("File not found: '" + x + "'");
-      }
-      return Sk.builtinFiles["files"][x];
-    }
-
-    Sk.configure({
-      output: (text: string) => {
-        updateOutput(text);
-      },
-      read: builtinRead,
-      inputfun: (promptText: string) => {
-        updateOutput(promptText); // Show the prompt in the output
-        const userInput = window.prompt(promptText.trimEnd()); // Get input from user
-        if (userInput !== null) {
-          updateOutput(userInput + '\\n'); // Echo user input
-        }
-        return userInput;
-      },
-      inputfunTakesPrompt: true,
-      python3: true,
-      // RetainLineNumbers will help with more accurate error reporting if Skulpt supports it well
-      // retPDB: true, // For debugging, if needed
-    });
+    setOutput('');
+    setIsAssistantLoading(true); // Use same loading state for simplicity
 
     try {
-      updateOutput(`Executing '${fileName}' with Skulpt...\n---\n`);
-      await Sk.misceval.asyncToPromise(() => {
-        return Sk.importMainWithBody("<stdin>", false, code, true);
-      });
-      updateOutput("\n---\nExecution finished.\n");
-      toast({ title: "Code Executed", description: `${fileName} run successfully.` });
+      setOutput(`Simulating execution of '${fileName}' with AI...\n---\n`);
+      const result = await executePythonCode({ code });
+      setOutput(prevOutput => `${prevOutput}${result.simulatedOutput}\n---\nAI simulation finished.\n`);
+      toast({ title: "AI Code Simulation", description: `${fileName} simulation completed.` });
     } catch (err: any) {
-      let errorMsg = "An error occurred during execution.";
-      if (err.toString) {
-        // Skulpt errors often have a lot of internal details, try to get a concise message
-        errorMsg = err.toString().replace(/\\nSuspendedExecution.*/s, '').trim();
-        if (err.tp$str !== undefined) {
-            errorMsg = err.tp$str().v; // More specific Skulpt error message
-        }
+      let errorMsg = "An error occurred during AI simulation.";
+      if (err.message) {
+        errorMsg = err.message;
       }
-      updateOutput(`\n---Error---\n${errorMsg}\n`);
-      toast({ title: "Execution Error", description: errorMsg, variant: "destructive" });
+      setOutput(prevOutput => `${prevOutput}\n---Error---\n${errorMsg}\n`);
+      toast({ title: "AI Simulation Error", description: errorMsg, variant: "destructive" });
+    } finally {
+      setIsAssistantLoading(false);
     }
   }, [code, fileName, toast]);
 
@@ -135,8 +95,8 @@ export default function IdePage() {
     }
     setIsAssistantLoading(true);
     setAssistantOutput('');
-    // Pass the current output (which might contain Skulpt errors) to the debugging flow
-    const errors = output.toLowerCase().includes("error") || output.toLowerCase().includes("traceback") ? output : "No specific errors detected by interpreter, but AI can still review.";
+    // Pass the current output (which might contain AI simulated errors) to the debugging flow
+    const errors = output.toLowerCase().includes("error") || output.toLowerCase().includes("traceback") || output.toLowerCase().includes("simulation failed") ? output : "No specific errors detected by AI simulation, but AI can still review.";
     try {
       const result = await codeAssistantDebugging({ code, output, errors });
       setAssistantOutput(`Debugging Suggestions:\n${result.suggestions}`);
@@ -206,7 +166,7 @@ export default function IdePage() {
         onExportFile={handleExportFile}
         fileName={fileName}
         onFileNameChange={setFileName}
-        isAssistantLoading={isAssistantLoading}
+        isAssistantLoading={isAssistantLoading} // This state is now used for Run, Explain, Debug
       />
       <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
         <Panel defaultSize={70} minSize={40} className="min-w-0">
@@ -218,7 +178,7 @@ export default function IdePage() {
         <Panel defaultSize={30} minSize={20} className="min-w-0">
           <PanelGroup direction="vertical" className="h-full gap-4 p-4 pl-0">
             <Panel defaultSize={60} minSize={20} className="min-h-0">
-               <AssistantPanel assistantOutput={assistantOutput} isLoading={isAssistantLoading} />
+               <AssistantPanel assistantOutput={assistantOutput} isLoading={isAssistantLoading && assistantOutput !== ''} />
             </Panel>
             <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-2 self-stretch" />
             <Panel defaultSize={40} minSize={20} className="min-h-0">
