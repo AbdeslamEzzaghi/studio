@@ -2,7 +2,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// ScrollArea import removed
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { CheckCircle2, XCircle, HelpCircle, Loader2 } from 'lucide-react';
 import type { TestResult } from '@/app/page'; 
@@ -14,7 +14,7 @@ interface TestResultsPanelProps {
 
 export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) {
   return (
-    <Card className="h-full flex flex-col shadow-lg">
+    <Card className="h-full flex flex-col shadow-lg overflow-hidden"> {/* Added overflow-hidden */}
       <CardHeader className="p-3 border-b flex flex-row items-center justify-between">
         <CardTitle className="text-lg flex items-center gap-2">
           <HelpCircle className="h-5 w-5 text-primary" />
@@ -22,52 +22,50 @@ export function TestResultsPanel({ results, isTesting }: TestResultsPanelProps) 
         </CardTitle>
         {isTesting && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
       </CardHeader>
-      <CardContent className="p-0 flex-1"> {/* flex-1 makes CardContent take remaining space */}
-        <ScrollArea className="h-full w-full">
-          {results.length === 0 && !isTesting ? (
-            <p className="p-4 text-sm text-muted-foreground">Exécutez le code pour voir les résultats des tests ici.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[50px]">Statut</TableHead>
-                  <TableHead>Cas de Test</TableHead>
-                  <TableHead>Entrée</TableHead>
-                  <TableHead>Attendu</TableHead>
-                  <TableHead>Réel</TableHead>
+      <CardContent className="flex-1 overflow-y-auto"> {/* Changed: Removed ScrollArea, added overflow-y-auto. p-0 is fine since Table handles its own. */}
+        {results.length === 0 && !isTesting ? (
+          <p className="p-4 text-sm text-muted-foreground">Exécutez le code pour voir les résultats des tests ici.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[50px]">Statut</TableHead>
+                <TableHead>Cas de Test</TableHead>
+                <TableHead>Entrée</TableHead>
+                <TableHead>Attendu</TableHead>
+                <TableHead>Réel</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {results.map((result) => (
+                <TableRow key={result.id}>
+                  <TableCell>
+                    {result.passed ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    ) : (
+                      <XCircle className="h-5 w-5 text-red-500" />
+                    )}
+                  </TableCell>
+                  <TableCell className="font-medium">{result.name}</TableCell>
+                  <TableCell><pre className="whitespace-pre-wrap text-xs">{result.input || 'N/A'}</pre></TableCell>
+                  <TableCell><pre className="whitespace-pre-wrap text-xs">{result.expectedOutput}</pre></TableCell>
+                  <TableCell><pre className="whitespace-pre-wrap text-xs">{result.actualOutput}</pre></TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {results.map((result) => (
-                  <TableRow key={result.id}>
-                    <TableCell>
-                      {result.passed ? (
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-red-500" />
-                      )}
-                    </TableCell>
-                    <TableCell className="font-medium">{result.name}</TableCell>
-                    <TableCell><pre className="whitespace-pre-wrap text-xs">{result.input || 'N/A'}</pre></TableCell>
-                    <TableCell><pre className="whitespace-pre-wrap text-xs">{result.expectedOutput}</pre></TableCell>
-                    <TableCell><pre className="whitespace-pre-wrap text-xs">{result.actualOutput}</pre></TableCell>
+              ))}
+              {isTesting && results.length === 0 && (
+                 Array.from({ length: 2 }).map((_, index) => (
+                  <TableRow key={`skeleton-${index}`}>
+                    <TableCell><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></TableCell>
+                    <TableCell className="text-muted-foreground">En cours...</TableCell>
+                    <TableCell className="text-muted-foreground">...</TableCell>
+                    <TableCell className="text-muted-foreground">...</TableCell>
+                    <TableCell className="text-muted-foreground">...</TableCell>
                   </TableRow>
-                ))}
-                {isTesting && results.length === 0 && (
-                   Array.from({ length: 2 }).map((_, index) => (
-                    <TableRow key={`skeleton-${index}`}>
-                      <TableCell><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></TableCell>
-                      <TableCell className="text-muted-foreground">En cours...</TableCell>
-                      <TableCell className="text-muted-foreground">...</TableCell>
-                      <TableCell className="text-muted-foreground">...</TableCell>
-                      <TableCell className="text-muted-foreground">...</TableCell>
-                    </TableRow>
-                   ))
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </ScrollArea>
+                 ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   );
