@@ -10,7 +10,7 @@ import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
 import { executePythonCode } from '@/ai/flows/execute-python-code';
 
-const DEFAULT_CODE = \`def greet(name):
+const DEFAULT_CODE = `def greet(name):
   message = f"Hello, {name}!"
   return message
 
@@ -26,7 +26,7 @@ print(greet(user_name))
 #   print(f"The sum is: {num1 + num2}")
 # else:
 #   print("Invalid input for numbers.")
-\`;
+`;
 
 export interface TestCase {
   id: string;
@@ -71,7 +71,7 @@ export default function IdePage() {
 
     toast({
       title: "Exécution des Tests Démarrée",
-      description: \`Exécution de ${userTestCases.length} cas de test...\`,
+      description: `Exécution de ${userTestCases.length} cas de test...`,
       variant: "default"
     });
 
@@ -91,6 +91,7 @@ export default function IdePage() {
           actualOutput: actual,
           passed,
         });
+        // Update results incrementally for better UX
         setTestResults([...currentTestRunResults]);
 
       } catch (err: any) {
@@ -98,12 +99,12 @@ export default function IdePage() {
         const errorMsg = err.message || "Une erreur s'est produite lors de la simulation IA pour ce cas de test.";
         currentTestRunResults.push({
           ...testCase,
-          actualOutput: \`ERREUR: ${errorMsg}\`,
+          actualOutput: `ERREUR: ${errorMsg}`,
           passed: false,
         });
-        setTestResults([...currentTestRunResults]);
+        setTestResults([...currentTestRunResults]); // Update results incrementally
          toast({
-          title: \`Erreur dans le Test : ${testCase.name}\`,
+          title: `Erreur dans le Test : ${testCase.name}`,
           description: errorMsg,
           variant: "destructive"
         });
@@ -112,7 +113,7 @@ export default function IdePage() {
     
     toast({
       title: "Exécution des Tests Terminée",
-      description: \`\${currentTestRunResults.filter(r => r.passed).length}/\${currentTestRunResults.length} tests réussis.\`,
+      description: `${currentTestRunResults.filter(r => r.passed).length}/${currentTestRunResults.length} tests réussis.`,
       variant: allTestsPassedOverall ? "default" : "destructive"
     });
     setIsProcessing(false);
@@ -126,12 +127,13 @@ export default function IdePage() {
       reader.onload = (e) => {
         setCode(e.target?.result as string);
         setFileName(file.name);
-        toast({ title: 'Fichier Importé', description: \`\${file.name} chargé dans l'éditeur.\` });
+        toast({ title: 'Fichier Importé', description: `${file.name} chargé dans l'éditeur.` });
       };
       reader.readAsText(file);
     }
+    // Reset input to allow re-uploading same file
     if (event.target) {
-      event.target.value = ""; // Reset input to allow re-uploading same file
+      event.target.value = ""; 
     }
   };
 
@@ -144,14 +146,15 @@ export default function IdePage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = fileName.endsWith('.py') ? fileName : \`\${fileName}.py\`;
+    a.download = fileName.endsWith('.py') ? fileName : `${fileName}.py`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast({ title: 'Fichier Exporté', description: \`\${a.download} sauvegardé.\` });
+    toast({ title: 'Fichier Exporté', description: `${a.download} sauvegardé.` });
   };
 
+  // Keyboard shortcut for running tests (Ctrl+Enter or Cmd+Enter)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -178,14 +181,14 @@ export default function IdePage() {
       />
       <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
         <Panel defaultSize={60} minSize={30} className="min-w-0">
-          <div className="h-full flex flex-col p-4 pr-0">
+          <div className="h-full flex flex-col p-4 pr-0"> {/* Added padding back here, removed from PanelGroup itself */}
             <EditorPanel code={code} onCodeChange={setCode} />
           </div>
         </Panel>
         <PanelResizeHandle className="w-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary mx-2 self-stretch" />
         <Panel defaultSize={40} minSize={25} className="min-w-0">
-          <PanelGroup direction="vertical" className="h-full p-4 pl-0">
-            <Panel defaultSize={50} minSize={25} className="min-h-0 pb-1">
+          <PanelGroup direction="vertical" className="h-full p-4 pl-0"> {/* Added padding back here */}
+            <Panel defaultSize={50} minSize={25} className="min-h-0 pb-1"> {/* Ensure min-h-0 for Panel */}
                <TestCasesInputPanel
                  testCases={userTestCases}
                  onTestCasesChange={setUserTestCases}
@@ -193,7 +196,7 @@ export default function IdePage() {
                />
             </Panel>
             <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" />
-            <Panel defaultSize={50} minSize={25} className="min-h-0 pt-1">
+            <Panel defaultSize={50} minSize={25} className="min-h-0 pt-1"> {/* Ensure min-h-0 for Panel */}
                <TestResultsPanel results={testResults} isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0} />
             </Panel>
           </PanelGroup>
@@ -202,3 +205,5 @@ export default function IdePage() {
     </div>
   );
 }
+
+    
