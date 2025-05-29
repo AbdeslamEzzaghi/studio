@@ -43,6 +43,12 @@ export interface TestResult extends TestCase {
 const initialTestCases: TestCase[] = [
   { id: '1', name: 'Saluer Alice', input: 'Alice', expectedOutput: 'Hello, Alice!' },
   { id: '2', name: 'Saluer Bob', input: 'Bob', expectedOutput: 'Hello, Bob!' },
+  { id: '3', name: 'Test Vide', input: '', expectedOutput: 'Hello, !' },
+  { id: '4', name: 'Test Nombre', input: '123', expectedOutput: 'Hello, 123!' },
+  { id: '5', name: 'Test Phrase Longue', input: 'Un nom tres tres long pour voir', expectedOutput: 'Hello, Un nom tres tres long pour voir!' },
+  { id: '6', name: 'Saluer Charlie', input: 'Charlie', expectedOutput: 'Hello, Charlie!' },
+  { id: '7', name: 'Saluer Dave', input: 'Dave', expectedOutput: 'Hello, Dave!' },
+  { id: '8', name: 'Saluer Eve', input: 'Eve', expectedOutput: 'Hello, Eve!' },
 ];
 
 
@@ -159,14 +165,16 @@ export default function IdePage() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
-        handleRunTests();
+        if (!isProcessing) { // Only run if not already processing
+          handleRunTests();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleRunTests]);
+  }, [handleRunTests, isProcessing]);
 
 
   return (
@@ -181,14 +189,14 @@ export default function IdePage() {
       />
       <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
         <Panel defaultSize={60} minSize={30} className="min-w-0">
-          <div className="h-full flex flex-col p-4 pr-0"> {/* Added padding back here, removed from PanelGroup itself */}
+          <div className="h-full flex flex-col p-4 pr-0">
             <EditorPanel code={code} onCodeChange={setCode} />
           </div>
         </Panel>
         <PanelResizeHandle className="w-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary mx-2 self-stretch" />
         <Panel defaultSize={40} minSize={25} className="min-w-0">
-          <PanelGroup direction="vertical" className="h-full p-4 pl-0"> {/* Added padding back here */}
-            <Panel defaultSize={50} minSize={25} className="min-h-0 pb-1"> {/* Ensure min-h-0 for Panel */}
+          <PanelGroup direction="vertical" className="h-full p-4 pl-0">
+            <Panel defaultSize={50} minSize={25} className="min-h-0 pb-1">
                <TestCasesInputPanel
                  testCases={userTestCases}
                  onTestCasesChange={setUserTestCases}
@@ -196,7 +204,7 @@ export default function IdePage() {
                />
             </Panel>
             <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" />
-            <Panel defaultSize={50} minSize={25} className="min-h-0 pt-1"> {/* Ensure min-h-0 for Panel */}
+            <Panel defaultSize={50} minSize={25} className="min-h-0 pt-1">
                <TestResultsPanel results={testResults} isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0} />
             </Panel>
           </PanelGroup>
@@ -205,5 +213,3 @@ export default function IdePage() {
     </div>
   );
 }
-
-    

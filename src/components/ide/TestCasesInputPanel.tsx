@@ -38,7 +38,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
   };
 
   return (
-    <Card className="flex-1 flex flex-col shadow-lg">
+    <Card className="flex-1 flex flex-col shadow-lg overflow-hidden"> {/* Added overflow-hidden here */}
       <CardHeader className="p-3 border-b">
         <CardTitle className="text-lg">Définir les Cas de Test</CardTitle>
       </CardHeader>
