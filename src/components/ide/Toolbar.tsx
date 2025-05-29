@@ -6,9 +6,10 @@ import { Play, Upload, Download, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CodeMuseLogo } from '@/components/icons';
+import { ThemeToggle } from '@/components/ThemeToggle'; // Import ThemeToggle
 
 interface ToolbarProps {
-  onRunTests: () => void; // Renamed from onRunCode
+  onRunTests: () => void;
   onImportFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onExportFile: () => void;
   fileName: string;
@@ -61,6 +62,9 @@ export function Toolbar({
           <Button variant="outline" size="sm" onClick={onExportFile} title="Export Python File" disabled={isProcessing}>
             <Download className="mr-2 h-4 w-4" /> Export
           </Button>
+        </div>
+        <div className="ml-2"> {/* Added margin for spacing */}
+          <ThemeToggle />
         </div>
       </div>
     </div>

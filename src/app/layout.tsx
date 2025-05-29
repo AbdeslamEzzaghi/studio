@@ -18,9 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <head>
-        {/* Skulpt scripts removed */}
-      </head>
+      <head />
       <body className={`font-sans antialiased`}>
         <TooltipProvider>
           {children}
