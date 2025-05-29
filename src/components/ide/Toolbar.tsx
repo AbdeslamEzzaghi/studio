@@ -2,31 +2,27 @@
 "use client";
 
 import React from 'react';
-import { Play, MessageSquareText, Bug, Upload, Download, Loader2 } from 'lucide-react';
+import { Play, Upload, Download, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CodeMuseLogo } from '@/components/icons';
 
 interface ToolbarProps {
-  onRunCode: () => void;
-  onExplainCode: () => void;
-  onDebugCode: () => void;
+  onRunTests: () => void; // Renamed from onRunCode
   onImportFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onExportFile: () => void;
   fileName: string;
   onFileNameChange: (name: string) => void;
-  isProcessing: boolean; // Renamed from isAssistantLoading
+  isProcessing: boolean;
 }
 
 export function Toolbar({
-  onRunCode,
-  onExplainCode,
-  onDebugCode,
+  onRunTests,
   onImportFile,
   onExportFile,
   fileName,
   onFileNameChange,
-  isProcessing, // Renamed
+  isProcessing,
 }: ToolbarProps) {
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -38,17 +34,9 @@ export function Toolbar({
     <div className="flex items-center justify-between p-3 border-b bg-card shadow-sm">
       <CodeMuseLogo />
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={onRunCode} disabled={isProcessing} title="Run Code & Tests (Ctrl+Enter)">
+        <Button variant="ghost" size="sm" onClick={onRunTests} disabled={isProcessing} title="Run Tests (Ctrl+Enter)">
           {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
            Run Tests
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onExplainCode} disabled={isProcessing} title="Explain Code">
-          {isProcessing && assistantOutput !== '' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquareText className="mr-2 h-4 w-4" />}
-          Explain
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onDebugCode} disabled={isProcessing} title="Debug Code">
-         {isProcessing && assistantOutput !== '' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bug className="mr-2 h-4 w-4" />}
-          Debug
         </Button>
         
         <div className="flex items-center gap-2 ml-4">
@@ -78,8 +66,3 @@ export function Toolbar({
     </div>
   );
 }
-
-// Minimal state for assistantOutput to satisfy Toolbar's conditional loading icon for explain/debug
-// This is a bit of a workaround. Ideally, the Toolbar wouldn't need to know about assistantOutput.
-// A more robust solution might involve separate loading states per button if granular control is needed.
-let assistantOutput = ''; 
