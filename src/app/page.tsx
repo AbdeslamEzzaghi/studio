@@ -24,8 +24,8 @@ print(greet("Developer"))
 
 # Example with input()
 # Try running this!
-name = input("What's your name? ")
-print(f"Nice to meet you, {name}!")
+# name = input("What's your name? ")
+# print(f"Nice to meet you, {name}!")
 
 # For loop example
 # for i in range(3):
@@ -47,13 +47,14 @@ export default function IdePage() {
   const handleRunCode = useCallback(async () => {
     setOutput(''); // Clear previous output
 
-    // @ts-ignore
-    if (typeof Sk === 'undefined' || typeof Sk.configure === 'undefined') {
-      const errorMsg = "Skulpt (Python interpreter) is not loaded. Please check your internet connection or try refreshing the page.";
+    if (!window.Sk || typeof window.Sk.configure !== 'function') {
+      const errorMsg = "Skulpt (Python interpreter) is not loaded or not yet ready. Please check your internet connection or try refreshing the page.";
       setOutput(errorMsg);
       toast({ title: "Interpreter Error", description: errorMsg, variant: "destructive" });
       return;
     }
+
+    const Sk = window.Sk; // Sk is now typed SkulptStatic | undefined, but check ensures it's SkulptStatic here.
 
     let currentOutput = "";
     const updateOutput = (text: string) => {
@@ -61,9 +62,6 @@ export default function IdePage() {
       setOutput(currentOutput);
     };
     
-    // @ts-ignore
-    const Sk = window.Sk;
-
     function builtinRead(x: string) {
       if (Sk.builtinFiles === undefined || Sk.builtinFiles["files"][x] === undefined) {
         throw new Error("File not found: '" + x + "'");
