@@ -10,6 +10,7 @@ import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
 import { executePythonCode } from '@/ai/flows/execute-python-code';
 import { generateTestCasesForCode, type GenerateTestCasesOutput } from '@/ai/flows/generate-test-cases-flow';
+import { codeAssistantDebugging } from '@/ai/flows/code-assistant-debugging';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Loader2 } from 'lucide-react';
 
 const DEFAULT_CODE = `a = float(input("Enter the first number: "))
 b = float(input("Enter the second number: "))
@@ -48,7 +50,8 @@ const initialTestCases: TestCase[] = [
 
 interface ErrorDialogContent {
   title: string;
-  description: string;
+  aiExplanation: string;
+  rawError?: string; // For internal reference or fallback
   codeSnapshot?: string;
 }
 
@@ -56,8 +59,9 @@ export default function IdePage() {
   const [code, setCode] = useState<string>(DEFAULT_CODE);
   const [userTestCases, setUserTestCases] = useState<TestCase[]>(initialTestCases);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false); // For running tests
+  const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false); // For AI test generation
+  const [isFetchingExplanation, setIsFetchingExplanation] = useState<boolean>(false); // For AI error explanation
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
 
@@ -93,27 +97,56 @@ export default function IdePage() {
     for (const testCase of userTestCases) {
       try {
         const joinedInputs = testCase.inputs.join('\n');
-        const result = await executePythonCode({ code, testInput: joinedInputs });
+        const execResult = await executePythonCode({ code, testInput: joinedInputs });
         
-        if (result.errorOutput) {
+        if (execResult.errorOutput) {
           allTestsPassedOverall = false;
           currentTestRunResults.push({
             ...testCase,
             actualOutput: "ERREUR (voir détails)",
             passed: false,
           });
-          setErrorForDialog({
-            title: "Erreur d'Exécution du Test",
-            description: result.errorOutput,
-            codeSnapshot: code,
+          setTestResults([...currentTestRunResults]);
+
+          setIsFetchingExplanation(true);
+          toast({
+            title: "Analyse de l'Erreur en Cours...",
+            description: "L'assistant IA prépare une explication de l'erreur.",
           });
-          setErrorDialogIsOpen(true);
-           // Stop further tests if one fails and shows a dialog, or decide if you want to continue
-           // For now, we'll continue and potentially show multiple dialogs or just the first error.
-           // Let's show only the first error for simplicity in this iteration.
-           // break; // Uncomment to stop on first error
-        } else if (result.successOutput !== null) {
-          const actual = result.successOutput.trim();
+
+          try {
+            const debugInfo = await codeAssistantDebugging({
+              code: code,
+              errors: execResult.errorOutput,
+              output: "", // The execution failed, so likely no meaningful prior output for this run
+            });
+            setErrorForDialog({
+              title: "Explication de l'Erreur (IA)",
+              aiExplanation: debugInfo.suggestions,
+              rawError: execResult.errorOutput,
+              codeSnapshot: code,
+            });
+            setErrorDialogIsOpen(true);
+          } catch (debugErr: any) {
+            // Fallback if AI explanation fails
+            setErrorForDialog({
+              title: "Erreur d'Exécution",
+              aiExplanation: `L'assistant IA n'a pas pu fournir d'explication. Erreur brute:\n${execResult.errorOutput}`,
+              rawError: execResult.errorOutput,
+              codeSnapshot: code,
+            });
+            setErrorDialogIsOpen(true);
+            toast({
+              title: "Erreur de l'Assistant IA",
+              description: "Impossible d'obtenir l'explication de l'erreur. Affichage de l'erreur brute.",
+              variant: "destructive",
+            });
+          } finally {
+            setIsFetchingExplanation(false);
+          }
+          break; // Stop on the first error to show the dialog
+        } else if (execResult.successOutput !== null) {
+          const actual = execResult.successOutput.trim();
           const expected = testCase.expectedOutput.trim();
           const passed = actual === expected;
           if (!passed) {
@@ -124,7 +157,7 @@ export default function IdePage() {
             actualOutput: actual,
             passed,
           });
-        } else { // Should not happen if flow is correct
+        } else { 
           allTestsPassedOverall = false;
           currentTestRunResults.push({
             ...testCase,
@@ -132,9 +165,9 @@ export default function IdePage() {
             passed: false,
           });
         }
-        setTestResults([...currentTestRunResults]); // Update results incrementally
+        setTestResults([...currentTestRunResults]);
 
-      } catch (err: any) {
+      } catch (err: any) { // System error calling executePythonCode or codeAssistantDebugging
         allTestsPassedOverall = false;
         const errorMsg = err.message || "Une erreur inattendue s'est produite lors de la simulation IA pour ce cas de test.";
         currentTestRunResults.push({
@@ -144,25 +177,27 @@ export default function IdePage() {
         });
         setTestResults([...currentTestRunResults]);
         setErrorForDialog({
-            title: "Erreur Système lors du Test",
-            description: errorMsg,
+            title: "Erreur Système Critique",
+            aiExplanation: errorMsg, // Show system error directly
             codeSnapshot: code,
           });
         setErrorDialogIsOpen(true);
-        // break; // Uncomment to stop on first system error
-         toast({
+        toast({
           title: `Erreur Système dans le Test : ${testCase.name}`,
           description: errorMsg,
           variant: "destructive"
         });
+        break; // Stop on first system error
       }
     }
     
-    toast({
-      title: "Exécution des Tests Terminée",
-      description: `${currentTestRunResults.filter(r => r.passed).length}/${currentTestRunResults.length} tests réussis.`,
-      variant: allTestsPassedOverall ? "default" : "destructive"
-    });
+    if (!errorDialogIsOpen) { // Only show summary toast if no error dialog popped up
+        toast({
+        title: "Exécution des Tests Terminée",
+        description: `${currentTestRunResults.filter(r => r.passed).length}/${currentTestRunResults.length} tests réussis.`,
+        variant: allTestsPassedOverall ? "default" : "destructive"
+        });
+    }
     setIsProcessing(false);
   }, [code, userTestCases, toast]);
 
@@ -240,7 +275,7 @@ export default function IdePage() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
-        if (!isProcessing && !isGeneratingTests) { 
+        if (!isProcessing && !isGeneratingTests && !isFetchingExplanation) { 
           handleRunTests();
         }
       }
@@ -249,7 +284,7 @@ export default function IdePage() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleRunTests, isProcessing, isGeneratingTests]);
+  }, [handleRunTests, isProcessing, isGeneratingTests, isFetchingExplanation]);
 
 
   return (
@@ -260,7 +295,7 @@ export default function IdePage() {
         onExportFile={handleExportFile}
         fileName={fileName}
         onFileNameChange={setFileName}
-        isProcessing={isProcessing || isGeneratingTests}
+        isProcessing={isProcessing || isGeneratingTests || isFetchingExplanation}
         onCleanCode={handleCleanCode}
       />
       <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
@@ -276,7 +311,7 @@ export default function IdePage() {
                <TestCasesInputPanel
                  testCases={userTestCases}
                  onTestCasesChange={setUserTestCases}
-                 isProcessing={isProcessing || isGeneratingTests}
+                 isProcessing={isProcessing || isGeneratingTests || isFetchingExplanation}
                  codeIsEmpty={!code.trim()}
                  onDeleteAllTestCases={handleDeleteAllTestCases}
                  onGenerateTestCases={handleGenerateTestCases}
@@ -297,12 +332,21 @@ export default function IdePage() {
               <AlertDialogTitle>{errorForDialog.title}</AlertDialogTitle>
             </AlertDialogHeader>
             <div className="mt-2 text-sm text-foreground space-y-4">
-              <p className="font-semibold">Message d'Erreur:</p>
-              <ScrollArea className="h-40 w-full rounded-md border p-2 bg-muted/50">
-                <pre className="text-xs whitespace-pre-wrap break-all font-mono">
-                  {errorForDialog.description}
-                </pre>
-              </ScrollArea>
+               {isFetchingExplanation && !errorForDialog.aiExplanation.startsWith("L'assistant IA n'a pas pu") ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="ml-2">L'assistant IA prépare une explication...</p>
+                </div>
+              ) : (
+                <>
+                  <p className="font-semibold">Explication de l'IA :</p>
+                  <ScrollArea className="h-40 w-full rounded-md border p-2 bg-muted/50">
+                    <pre className="text-sm whitespace-pre-wrap break-all font-mono">
+                      {errorForDialog.aiExplanation}
+                    </pre>
+                  </ScrollArea>
+                </>
+              )}
               {errorForDialog.codeSnapshot && (
                 <>
                   <p className="font-semibold pt-2">Code Concerné:</p>
@@ -313,9 +357,21 @@ export default function IdePage() {
                   </ScrollArea>
                 </>
               )}
+               {errorForDialog.rawError && !errorForDialog.aiExplanation.includes(errorForDialog.rawError) && (
+                <>
+                  <p className="font-semibold pt-2 text-xs text-muted-foreground">Erreur brute (pour référence):</p>
+                  <ScrollArea className="h-20 w-full rounded-md border p-2 bg-muted/20">
+                    <pre className="text-xs whitespace-pre-wrap break-all font-mono">
+                      {errorForDialog.rawError}
+                    </pre>
+                  </ScrollArea>
+                </>
+              )}
             </div>
             <AlertDialogFooter>
-              <AlertDialogAction onClick={() => setErrorDialogIsOpen(false)}>Fermer</AlertDialogAction>
+              <AlertDialogAction onClick={() => setErrorDialogIsOpen(false)} disabled={isFetchingExplanation}>
+                Fermer
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

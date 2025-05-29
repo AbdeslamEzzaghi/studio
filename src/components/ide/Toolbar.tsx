@@ -2,7 +2,7 @@
 "use client";
 
 import React from 'react';
-import { Play, Upload, Download, Loader2, FileX2 } from 'lucide-react'; // Added FileX2
+import { Play, Upload, Download, Loader2, FileX2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CodeMuseLogo } from '@/components/icons';
@@ -14,8 +14,8 @@ interface ToolbarProps {
   onExportFile: () => void;
   fileName: string;
   onFileNameChange: (name: string) => void;
-  isProcessing: boolean;
-  onCleanCode: () => void; // New prop
+  isProcessing: boolean; // This will now cover test execution, AI test gen, and AI error explanation
+  onCleanCode: () => void;
 }
 
 export function Toolbar({
@@ -25,7 +25,7 @@ export function Toolbar({
   fileName,
   onFileNameChange,
   isProcessing,
-  onCleanCode, // New prop
+  onCleanCode,
 }: ToolbarProps) {
   const importInputRef = React.useRef<HTMLInputElement>(null);
 

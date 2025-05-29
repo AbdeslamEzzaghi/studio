@@ -6,13 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { PlusCircle, Trash2, MinusCircle, Sparkles, Bot } from 'lucide-react'; // Added Sparkles
+import { PlusCircle, Trash2, MinusCircle, Bot, Loader2 } from 'lucide-react';
 import type { TestCase } from '@/app/page';
 
 interface TestCasesInputPanelProps {
   testCases: TestCase[];
   onTestCasesChange: (testCases: TestCase[]) => void;
-  isProcessing: boolean;
+  isProcessing: boolean; // Covers all AI processing states: running tests, generating tests, fetching explanations
   codeIsEmpty: boolean;
   onDeleteAllTestCases: () => void;
   onGenerateTestCases: () => void;
@@ -94,7 +94,8 @@ export function TestCasesInputPanel({
             disabled={isProcessing || codeIsEmpty}
             title={codeIsEmpty ? "Écrivez du code pour générer des tests" : "Générer des tests par IA"}
           >
-            <Bot className="mr-2 h-4 w-4" /> Générer des Tests (IA)
+            {isProcessing && !codeIsEmpty ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}
+             Générer des Tests (IA)
           </Button>
           <Button 
             onClick={onDeleteAllTestCases} 
