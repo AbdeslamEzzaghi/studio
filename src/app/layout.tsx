@@ -5,16 +5,6 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-const geistSans = GeistSans({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = GeistMono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
-
 export const metadata: Metadata = {
   title: 'CodeMuse - Python Web IDE',
   description: 'A web-based Python IDE with AI-powered code assistance.',
@@ -26,8 +16,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className={`font-sans antialiased`}>
         <TooltipProvider>
           {children}
         </TooltipProvider>

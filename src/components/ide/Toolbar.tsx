@@ -1,10 +1,11 @@
 "use client";
 
-import { Play, MessageSquareText, Bug, Upload, Download, FileText, AlertTriangle } from 'lucide-react';
+import React from 'react';
+import { Play, MessageSquareText, Bug, Upload, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import type React from 'react';
+// Label was imported but not used, so I'll remove it to keep things clean.
+// import { Label } from '@/components/ui/label'; 
 import { CodeMuseLogo } from '@/components/icons';
 
 interface ToolbarProps {
