@@ -6,21 +6,31 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { PlusCircle, Trash2, MinusCircle } from 'lucide-react';
+import { PlusCircle, Trash2, MinusCircle, Sparkles, Bot } from 'lucide-react'; // Added Sparkles
 import type { TestCase } from '@/app/page';
 
 interface TestCasesInputPanelProps {
   testCases: TestCase[];
   onTestCasesChange: (testCases: TestCase[]) => void;
   isProcessing: boolean;
+  codeIsEmpty: boolean;
+  onDeleteAllTestCases: () => void;
+  onGenerateTestCases: () => void;
 }
 
-export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing }: TestCasesInputPanelProps) {
+export function TestCasesInputPanel({ 
+  testCases, 
+  onTestCasesChange, 
+  isProcessing,
+  codeIsEmpty,
+  onDeleteAllTestCases,
+  onGenerateTestCases 
+}: TestCasesInputPanelProps) {
   const handleAddTestCase = () => {
     const newTestCase: TestCase = {
       id: Date.now().toString(),
       name: `Cas de Test ${testCases.length + 1}`,
-      inputs: [''], // Start with one empty input line
+      inputs: [''], 
       expectedOutput: '',
     };
     onTestCasesChange([...testCases, newTestCase]);
@@ -30,18 +40,12 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
     onTestCasesChange(testCases.filter(tc => tc.id !== id));
   };
 
-  const handleTestCaseNameChange = (id: string, value: string) => {
+  const handleTestCaseChange = (id: string, field: keyof Omit<TestCase, 'id' | 'inputs'>, value: string) => {
     onTestCasesChange(
-      testCases.map(tc => (tc.id === id ? { ...tc, name: value } : tc))
+      testCases.map(tc => (tc.id === id ? { ...tc, [field]: value } : tc))
     );
   };
   
-  const handleTestCaseExpectedOutputChange = (id: string, value: string) => {
-    onTestCasesChange(
-      testCases.map(tc => (tc.id === id ? { ...tc, expectedOutput: value } : tc))
-    );
-  };
-
   const handleAddInputLine = (testCaseId: string) => {
     onTestCasesChange(
       testCases.map(tc =>
@@ -75,16 +79,37 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
     );
   };
 
-
   return (
     <Card className="h-full flex flex-col shadow-lg overflow-hidden">
       <CardHeader className="p-3 border-b">
         <CardTitle className="text-lg">Définir les Cas de Test</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto p-3">
+        <div className="flex gap-2 mb-3">
+          <Button 
+            onClick={onGenerateTestCases} 
+            variant="outline" 
+            size="sm" 
+            className="flex-1" 
+            disabled={isProcessing || codeIsEmpty}
+            title={codeIsEmpty ? "Écrivez du code pour générer des tests" : "Générer des tests par IA"}
+          >
+            <Bot className="mr-2 h-4 w-4" /> Générer des Tests (IA)
+          </Button>
+          <Button 
+            onClick={onDeleteAllTestCases} 
+            variant="destructive" 
+            size="sm" 
+            className="flex-1" 
+            disabled={isProcessing || testCases.length === 0}
+          >
+            <Trash2 className="mr-2 h-4 w-4" /> Supprimer Tous
+          </Button>
+        </div>
+
         {testCases.length === 0 && (
           <div className="text-center text-muted-foreground py-4">
-            Aucun cas de test défini. Cliquez sur "Ajouter un Cas de Test" pour commencer.
+            Aucun cas de test défini. Ajoutez-en un manuellement ou générez-les avec l'IA.
           </div>
         )}
         {testCases.map((testCase, index) => (
@@ -93,7 +118,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
               <Input
                 placeholder={`Nom du Cas de Test ${index + 1}`}
                 value={testCase.name}
-                onChange={(e) => handleTestCaseNameChange(testCase.id, e.target.value)}
+                onChange={(e) => handleTestCaseChange(testCase.id, 'name', e.target.value)}
                 className="text-sm font-medium flex-grow mr-2 bg-background"
                 disabled={isProcessing}
               />
@@ -137,8 +162,8 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
               <Button 
                 onClick={() => handleAddInputLine(testCase.id)} 
                 variant="outline" 
-                size="xs" // smaller button
-                className="mt-1 text-xs py-0.5 px-1.5 h-auto" // compact styling
+                size="xs"
+                className="mt-1 text-xs py-0.5 px-1.5 h-auto"
                 disabled={isProcessing}
               >
                 <PlusCircle className="mr-1 h-3 w-3" /> Ajouter une ligne d'entrée
@@ -150,7 +175,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
               <Textarea
                 placeholder="Sortie Attendue"
                 value={testCase.expectedOutput}
-                onChange={(e) => handleTestCaseExpectedOutputChange(testCase.id, e.target.value)}
+                onChange={(e) => handleTestCaseChange(testCase.id, 'expectedOutput', e.target.value)}
                 className="text-xs font-mono bg-background"
                 rows={2}
                 disabled={isProcessing}
@@ -160,7 +185,7 @@ export function TestCasesInputPanel({ testCases, onTestCasesChange, isProcessing
         ))}
         <Button onClick={handleAddTestCase} variant="outline" size="sm" className="mt-2 w-full" disabled={isProcessing}>
           <PlusCircle className="mr-2 h-4 w-4" />
-          Ajouter un Cas de Test
+          Ajouter un Cas de Test Manuel
         </Button>
       </CardContent>
     </Card>

@@ -9,39 +9,43 @@ import { TestCasesInputPanel } from '@/components/ide/TestCasesInputPanel';
 import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
 import { executePythonCode } from '@/ai/flows/execute-python-code';
+import { generateTestCasesForCode } from '@/ai/flows/generate-test-cases-flow'; // New import
 
 const DEFAULT_CODE = `# Example: Sum of two numbers
 num1_str = input("Enter first number: ")
 num2_str = input("Enter second number: ")
-if num1_str.isdigit() and num2_str.isdigit():
+
+# Check if inputs are digits before converting
+if num1_str.strip().lstrip('-+').isdigit() and num2_str.strip().lstrip('-+').isdigit():
   num1 = int(num1_str)
   num2 = int(num2_str)
   print(f"The sum is: {num1 + num2}")
+elif not num1_str.strip().lstrip('-+').isdigit():
+  print(f"Invalid input for first number: {num1_str}")
+elif not num2_str.strip().lstrip('-+').isdigit():
+  print(f"Invalid input for second number: {num2_str}")
 else:
   print("Invalid input for numbers.")
-
-# name = input("Enter your name: ")
-# print(f"Hello, {name}")
 `;
 
 export interface TestCase {
   id: string;
   name: string;
-  inputs: string[]; // Changed from input: string
+  inputs: string[];
   expectedOutput: string;
 }
 
-export interface TestResult extends Omit<TestCase, 'inputs'> {
-  inputs: string[];
+export interface TestResult extends TestCase { // TestResult now directly extends TestCase
   actualOutput: string;
   passed: boolean;
 }
 
 const initialTestCases: TestCase[] = [
-  { id: 'sum1', name: 'Somme (10, 20)', inputs: ['10', '20'], expectedOutput: 'The sum is: 30' },
-  { id: 'sum2', name: 'Somme (5, 7)', inputs: ['5', '7'], expectedOutput: 'The sum is: 12' },
-  { id: 'sum_invalid', name: 'Somme (abc, 5)', inputs: ['abc', '5'], expectedOutput: 'Invalid input for numbers.' },
-  { id: 'greet1', name: 'Saluer Alice', inputs: ['Alice'], expectedOutput: 'Hello, Alice' }, // Assuming default code changes or is toggled
+  { id: 'sum_10_20', name: 'Somme (10, 20)', inputs: ['10', '20'], expectedOutput: 'The sum is: 30' },
+  { id: 'sum_neg_5_7', name: 'Somme (-5, 7)', inputs: ['-5', '7'], expectedOutput: 'The sum is: 2' },
+  { id: 'invalid_abc_5', name: 'Invalide (abc, 5)', inputs: ['abc', '5'], expectedOutput: 'Invalid input for first number: abc' },
+  { id: 'invalid_5_xyz', name: 'Invalide (5, xyz)', inputs: ['5', 'xyz'], expectedOutput: 'Invalid input for second number: xyz' },
+  { id: 'empty_inputs', name: 'Entrées vides ("", "")', inputs: ['', ''], expectedOutput: 'Invalid input for first number: ' },
 ];
 
 
@@ -50,6 +54,7 @@ export default function IdePage() {
   const [userTestCases, setUserTestCases] = useState<TestCase[]>(initialTestCases);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isGeneratingTests, setIsGeneratingTests] = useState<boolean>(false); // New state
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
 
@@ -87,10 +92,7 @@ export default function IdePage() {
         }
 
         currentTestRunResults.push({
-          id: testCase.id,
-          name: testCase.name,
-          inputs: testCase.inputs,
-          expectedOutput: testCase.expectedOutput,
+          ...testCase, // Spread TestCase properties
           actualOutput: actual,
           passed,
         });
@@ -100,10 +102,7 @@ export default function IdePage() {
         allTestsPassedOverall = false;
         const errorMsg = err.message || "Une erreur s'est produite lors de la simulation IA pour ce cas de test.";
         currentTestRunResults.push({
-          id: testCase.id,
-          name: testCase.name,
-          inputs: testCase.inputs,
-          expectedOutput: testCase.expectedOutput,
+          ...testCase,
           actualOutput: `ERREUR: ${errorMsg}`,
           passed: false,
         });
@@ -158,11 +157,47 @@ export default function IdePage() {
     toast({ title: 'Fichier Exporté', description: `${a.download} sauvegardé.` });
   };
 
+  const handleDeleteAllTestCases = useCallback(() => {
+    setUserTestCases([]);
+    setTestResults([]); // Also clear results
+    toast({ title: 'Cas de Test Supprimés', description: 'Tous les cas de test ont été supprimés.' });
+  }, [toast]);
+
+  const handleGenerateTestCases = useCallback(async () => {
+    if (!code.trim()) {
+      toast({ title: 'Code Vide', description: 'Veuillez écrire du code dans l\'éditeur avant de générer des tests.', variant: 'destructive' });
+      return;
+    }
+    setIsGeneratingTests(true);
+    toast({ title: 'Génération de Tests IA', description: 'L\'IA génère des cas de test pour votre code...' });
+    try {
+      const result = await generateTestCasesForCode({ code });
+      if (result.generatedTestCases && result.generatedTestCases.length > 0) {
+        const newTestCases = result.generatedTestCases.map((tc, index) => ({
+          id: `ai_${Date.now().toString()}_${index}`, // Ensure unique IDs
+          name: tc.name,
+          inputs: tc.inputs,
+          expectedOutput: tc.expectedOutput,
+        }));
+        setUserTestCases(newTestCases); // Replace existing test cases
+        setTestResults([]); // Clear previous results
+        toast({ title: 'Tests Générés par IA', description: `${newTestCases.length} cas de test ont été générés et chargés.` });
+      } else {
+        toast({ title: 'Génération Échouée', description: 'L\'IA n\'a pas pu générer de cas de test.', variant: 'destructive' });
+      }
+    } catch (error: any) {
+      toast({ title: 'Erreur de Génération IA', description: error.message || 'Une erreur inconnue est survenue.', variant: 'destructive' });
+    } finally {
+      setIsGeneratingTests(false);
+    }
+  }, [code, toast]);
+
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
-        if (!isProcessing) { 
+        if (!isProcessing && !isGeneratingTests) { 
           handleRunTests();
         }
       }
@@ -171,7 +206,7 @@ export default function IdePage() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleRunTests, isProcessing]);
+  }, [handleRunTests, isProcessing, isGeneratingTests]);
 
 
   return (
@@ -182,7 +217,7 @@ export default function IdePage() {
         onExportFile={handleExportFile}
         fileName={fileName}
         onFileNameChange={setFileName}
-        isProcessing={isProcessing}
+        isProcessing={isProcessing || isGeneratingTests} // Toolbar disabled during both
       />
       <PanelGroup direction="horizontal" className="flex-1 overflow-hidden">
         <Panel defaultSize={60} minSize={30} className="min-w-0">
@@ -197,7 +232,10 @@ export default function IdePage() {
                <TestCasesInputPanel
                  testCases={userTestCases}
                  onTestCasesChange={setUserTestCases}
-                 isProcessing={isProcessing}
+                 isProcessing={isProcessing || isGeneratingTests}
+                 codeIsEmpty={!code.trim()}
+                 onDeleteAllTestCases={handleDeleteAllTestCases}
+                 onGenerateTestCases={handleGenerateTestCases}
                />
             </Panel>
             <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" />
