@@ -80,7 +80,9 @@ export default function IdePage() {
 
   const isAIServiceError = (errorMessage: string): boolean => {
     const lowerCaseMessage = errorMessage.toLowerCase();
-    return lowerCaseMessage.includes('503') || lowerCaseMessage.includes('service unavailable') || lowerCaseMessage.includes('model is overloaded') || lowerCaseMessage.includes('gemini');
+    return lowerCaseMessage.includes('503') || 
+           lowerCaseMessage.includes('service unavailable') || 
+           lowerCaseMessage.includes('model is overloaded');
   };
 
   const handleRunTests = useCallback(async () => {
@@ -106,7 +108,7 @@ export default function IdePage() {
     });
 
     for (const testCase of userTestCases) {
-      if (anErrorOccurred) break; // Stop processing further tests if an error dialog is triggered
+      if (anErrorOccurred) break; 
 
       try {
         const joinedInputs = testCase.inputs.join('\n');
@@ -248,7 +250,6 @@ export default function IdePage() {
         });
     }
     setIsProcessing(false);
-    // isFetchingExplanation is reset within its own try/finally or if an outer error occurs.
   }, [code, userTestCases, toast]);
 
 
