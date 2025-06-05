@@ -65,14 +65,22 @@ Instructions for handling the \`input()\` function in the Python code:
 6.  If the 'testInput' parameter was genuinely not provided to you by the system calling you (meaning the value for "{{{testInput}}}" above would be empty because the parameter was absent, not just an empty string or a string with only newlines), AND the Python code calls \`input()\`, then (and only then) you should state clearly in your errorOutput: "Interactive input is not supported for general simulation. Please provide a testInput for specific scenarios." After stating this, if the code attempts to use the result of \`input()\`, you can assume it results in an empty string or handle it gracefully to simulate the rest of the code.
 
 Output Instructions:
-- If the code executes successfully, provide ONLY the text that would be printed to the standard output in the 'successOutput' field. The 'errorOutput' field MUST be null.
-- For clarity:
-    - If the Python code is \`print("hello")\`, then \`successOutput\` MUST be the string \`"hello"\`.
-    - If the Python code is \`print("The sum is:", 1+2)\`, then \`successOutput\` MUST be the string \`"The sum is: 3"\` (or similar, respecting Python's print behavior with multiple arguments).
-    - If the Python code is \`print("")\`, then \`successOutput\` MUST be the empty string \`""\`.
-    - If the Python code executes without errors but prints nothing (e.g., a script with only assignments like \`x = 1\`), then \`successOutput\` MUST also be the empty string \`""\`.
-    - The \`successOutput\` field should be \`null\` *only if* an error occurred during execution, in which case the \`errorOutput\` field will contain the error details.
-- If the code encounters an error during execution, provide a Python-like traceback or a clear description of the error in the 'errorOutput' field. The 'successOutput' field MUST be null.
+- If the code executes successfully:
+    - The 'successOutput' field MUST contain the exact text that would be printed to the standard output.
+    - The 'errorOutput' field MUST be JavaScript \`null\`.
+    - **Crucially**: \`successOutput\` MUST NOT be the JavaScript \`null\` value. It MUST NOT be the string \`"null"\` UNLESS the Python code *itself explicitly prints the literal string "null"*.
+    - If the Python code runs successfully but prints nothing (e.g., \`x = 1\` or \`print()\`), then \`successOutput\` MUST be an empty string \`""\`.
+- If the code encounters an error during execution:
+    - The 'errorOutput' field MUST contain a Python-like traceback or a clear description of the error.
+    - The 'successOutput' field MUST be JavaScript \`null\`.
+
+For example:
+    - Code: \`print("hello")\` -> \`successOutput: "hello"\`, \`errorOutput: null\`
+    - Code: \`print("The sum is:", 1+2)\` -> \`successOutput: "The sum is: 3"\`, \`errorOutput: null\`
+    - Code: \`print("")\` -> \`successOutput: ""\`, \`errorOutput: null\`
+    - Code: \`x=1\` (no print) -> \`successOutput: ""\`, \`errorOutput: null\`
+    - Code: \`print("null")\` -> \`successOutput: "null"\`, \`errorOutput: null\`
+    - Code: \`1/0\` -> \`successOutput: null\`, \`errorOutput: "Traceback (most recent call last):\\n  File \\"<stdin>\\", line 1, in <module>\\nZeroDivisionError: division by zero"\`
 
 Ensure your entire response is a single JSON object matching the specified output schema. Do not add any conversational preamble.
 `,
@@ -94,6 +102,19 @@ const executePythonCodeFlow = ai.defineFlow(
     if (output?.errorOutput) {
       return { successOutput: null, errorOutput: output.errorOutput };
     }
+
+    // Safeguard: If the AI returns the string "null" as success output,
+    // it's often a misinterpretation unless the code explicitly prints "null".
+    // We'll treat it as an AI simulation issue for now.
+    if (output?.successOutput === "null") {
+      // This check is a heuristic. If a user's code is `print("null")`, this will incorrectly flag it.
+      // However, it's more common for the AI to misuse "null" than for users to specifically print that string.
+      return {
+        successOutput: null,
+        errorOutput: "L'IA a retourné la chaîne de caractères \"null\" comme sortie réussie, ce qui est probablement une erreur de simulation. Si votre code est censé afficher \"null\", veuillez ignorer ce message. Sinon, vérifiez le code ou réessayez."
+      };
+    }
+
     if (output?.successOutput !== undefined && output?.successOutput !== null) {
       // This covers empty string "" as valid success output
       return { successOutput: output.successOutput, errorOutput: null };
@@ -106,3 +127,4 @@ const executePythonCodeFlow = ai.defineFlow(
   }
 );
 
+    
