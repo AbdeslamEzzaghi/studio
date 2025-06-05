@@ -97,34 +97,39 @@ const executePythonCodeFlow = ai.defineFlow(
         ...input,
         testInput: input.testInput === undefined ? "" : input.testInput,
     };
-    const {output} = await prompt(effectiveInput);
+    const {output: rawOutput} = await prompt(effectiveInput);
 
-    if (output?.errorOutput) {
-      return { successOutput: null, errorOutput: output.errorOutput };
+    // Trim potential successOutput early to handle cases like "null\n"
+    const trimmedSuccessOutput = rawOutput?.successOutput?.trim();
+    const errorOutputFromAI = rawOutput?.errorOutput;
+
+    // Path 1: AI returns an error directly
+    if (errorOutputFromAI) {
+      return { successOutput: null, errorOutput: errorOutputFromAI };
     }
 
-    // Safeguard: If the AI returns the string "null" as success output,
-    // it's often a misinterpretation unless the code explicitly prints "null".
-    // We'll treat it as an AI simulation issue for now.
-    if (output?.successOutput === "null") {
-      // This check is a heuristic. If a user's code is `print("null")`, this will incorrectly flag it.
-      // However, it's more common for the AI to misuse "null" than for users to specifically print that string.
+    // Path 2: Safeguard - AI returns the string "null" (after trim) as success output
+    // This is considered an AI misinterpretation unless the code explicitly prints "null".
+    if (trimmedSuccessOutput === "null") {
       return {
-        successOutput: null,
+        successOutput: null, // Convert to JavaScript null
         errorOutput: "L'IA a retourné la chaîne de caractères \"null\" comme sortie réussie, ce qui est probablement une erreur de simulation. Si votre code est censé afficher \"null\", veuillez ignorer ce message. Sinon, vérifiez le code ou réessayez."
       };
     }
 
-    if (output?.successOutput !== undefined && output?.successOutput !== null) {
-      // This covers empty string "" as valid success output
-      return { successOutput: output.successOutput, errorOutput: null };
+    // Path 3: AI returns a valid successOutput (neither an error, nor the string "null")
+    // An empty string "" is a valid successOutput if the python code prints nothing.
+    // `trimmedSuccessOutput` can be an empty string here and that's valid.
+    if (trimmedSuccessOutput !== undefined && trimmedSuccessOutput !== null) {
+      return { successOutput: trimmedSuccessOutput, errorOutput: null };
     }
-    // Fallback if AI response is not as expected or both are null/undefined
+
+    // Path 4: Fallback if AI response is not as expected or both outputs are effectively null/undefined
+    // This would catch cases where rawOutput itself was undefined, or rawOutput.successOutput was undefined/null
+    // and it wasn't caught by the conditions above.
     return {
       successOutput: null,
-      errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect."
+      errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect (e.g., sortie indéfinie)."
     };
   }
 );
-
-    
