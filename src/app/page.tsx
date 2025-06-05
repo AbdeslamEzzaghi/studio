@@ -20,7 +20,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2 } from 'lucide-react';
@@ -46,9 +45,13 @@ const initialTestCases: TestCase[] = [
   { id: 'sum_10_20', name: 'Somme (10.0, 20.0)', inputs: ['10.0', '20.0'], expectedOutput: 'The sum is: 30.0' },
   { id: 'sum_neg_5_7_5', name: 'Somme (-5.0, 7.5)', inputs: ['-5.0', '7.5'], expectedOutput: 'The sum is: 2.5' },
   { id: 'sum_0_0', name: 'Somme (0, 0)', inputs: ['0', '0'], expectedOutput: 'The sum is: 0.0' },
-  { id: 'multi_line_1', name: 'Entrée vide puis nombre', inputs: ['', '5.5'], expectedOutput: 'The sum is: 5.5' },
-  { id: 'multi_line_2', name: 'Deux nombres décimaux', inputs: ['1.23', '4.56'], expectedOutput: 'The sum is: 5.79' },
+  { id: 'multi_input_1_2', name: 'Somme (1.0, 2.0)', inputs: ['1.0', '2.0'], expectedOutput: 'The sum is: 3.0' },
+  { id: 'multi_input_empty_5.5', name: 'Entrée vide puis nombre', inputs: ['', '5.5'], expectedOutput: 'The sum is: 5.5' },
+  { id: 'multi_input_decimal_values', name: 'Deux nombres décimaux', inputs: ['1.23', '4.56'], expectedOutput: 'The sum is: 5.79' },
+  { id: 'multi_input_large_numbers', name: 'Grands nombres', inputs: ['1000000', '2500000'], expectedOutput: 'The sum is: 3500000.0' },
+  { id: 'multi_input_zero_first', name: 'Premier nombre zéro', inputs: ['0.0', '99.9'], expectedOutput: 'The sum is: 99.9' },
 ];
+
 
 interface ErrorDialogContent {
   title: string;
@@ -75,6 +78,11 @@ export default function IdePage() {
     toast({ title: 'Code Nettoyé', description: "L'éditeur a été vidé." });
   }, [toast]);
 
+  const isAIServiceError = (errorMessage: string): boolean => {
+    const lowerCaseMessage = errorMessage.toLowerCase();
+    return lowerCaseMessage.includes('503') || lowerCaseMessage.includes('service unavailable') || lowerCaseMessage.includes('model is overloaded') || lowerCaseMessage.includes('gemini');
+  };
+
   const handleRunTests = useCallback(async () => {
     if (!code.trim()) {
       toast({ title: 'Code Vide', description: 'Veuillez entrer du code Python à exécuter.', variant: 'destructive' });
@@ -89,6 +97,7 @@ export default function IdePage() {
     setTestResults([]);
     const currentTestRunResults: TestResult[] = [];
     let allTestsPassedOverall = true;
+    let anErrorOccurred = false;
 
     toast({
       title: "Exécution des Tests Démarrée",
@@ -97,18 +106,21 @@ export default function IdePage() {
     });
 
     for (const testCase of userTestCases) {
+      if (anErrorOccurred) break; // Stop processing further tests if an error dialog is triggered
+
       try {
         const joinedInputs = testCase.inputs.join('\n');
         const execResult = await executePythonCode({ code, testInput: joinedInputs });
         
         if (execResult.errorOutput) {
+          anErrorOccurred = true;
           allTestsPassedOverall = false;
           currentTestRunResults.push({
             ...testCase,
             actualOutput: "ERREUR (voir détails)",
             passed: false,
           });
-          setTestResults([...currentTestRunResults]); // Update results incrementally
+          setTestResults([...currentTestRunResults]); 
 
           setIsFetchingExplanation(true);
           toast({
@@ -128,22 +140,31 @@ export default function IdePage() {
               rawError: execResult.errorOutput,
               codeSnapshot: code,
             });
-            setErrorDialogIsOpen(true);
           } catch (debugErr: any) {
+            let aiExplanationMessage = `L'assistant IA n'a pas pu fournir d'explication. Erreur brute:\n${execResult.errorOutput}`;
+            if (isAIServiceError(debugErr.message)) {
+              toast({
+                title: "Service IA Indisponible",
+                description: "L'assistant IA est temporairement surchargé pour l'explication. Veuillez réessayer plus tard.",
+                variant: "destructive",
+              });
+              aiExplanationMessage = "L'assistant IA est temporairement indisponible pour fournir une explication en raison d'une surcharge. Veuillez réessayer plus tard.";
+            } else {
+               toast({
+                title: "Erreur de l'Assistant IA",
+                description: "Impossible d'obtenir l'explication de l'erreur. Affichage de l'erreur brute.",
+                variant: "destructive",
+              });
+            }
             setErrorForDialog({
               title: "Erreur d'Exécution",
-              aiExplanation: `L'assistant IA n'a pas pu fournir d'explication. Erreur brute:\n${execResult.errorOutput}`,
+              aiExplanation: aiExplanationMessage,
               rawError: execResult.errorOutput,
               codeSnapshot: code,
             });
-            setErrorDialogIsOpen(true);
-            toast({
-              title: "Erreur de l'Assistant IA",
-              description: "Impossible d'obtenir l'explication de l'erreur. Affichage de l'erreur brute.",
-              variant: "destructive",
-            });
           } finally {
             setIsFetchingExplanation(false);
+            setErrorDialogIsOpen(true); 
           }
           break; 
         } else if (execResult.successOutput !== null) {
@@ -159,40 +180,67 @@ export default function IdePage() {
             passed,
           });
         } else { 
+          anErrorOccurred = true;
           allTestsPassedOverall = false;
           currentTestRunResults.push({
             ...testCase,
             actualOutput: "Sortie IA Invalide (null)",
             passed: false,
           });
+           setErrorForDialog({
+              title: "Erreur de Simulation IA",
+              aiExplanation: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse était incorrect.",
+              codeSnapshot: code,
+            });
+            setErrorDialogIsOpen(true);
         }
         setTestResults([...currentTestRunResults]);
 
       } catch (err: any) { 
+        anErrorOccurred = true;
         allTestsPassedOverall = false;
-        const errorMsg = err.message || "Une erreur inattendue s'est produite lors de la simulation IA pour ce cas de test.";
-        currentTestRunResults.push({
-          ...testCase,
-          actualOutput: `ERREUR SYSTÈME: ${errorMsg}`,
-          passed: false,
-        });
+        const errorMsg = err.message || "Une erreur inattendue s'est produite.";
+        let dialogTitle = `Erreur Système dans le Test : ${testCase.name}`;
+        let dialogExplanation = errorMsg;
+
+        if (isAIServiceError(errorMsg)) {
+          toast({
+            title: "Service IA Indisponible",
+            description: "La simulation du code a échoué car le service IA est temporairement surchargé. Veuillez réessayer plus tard.",
+            variant: "destructive",
+          });
+          dialogTitle = "Erreur de Simulation IA";
+          dialogExplanation = "La simulation de votre code n'a pas pu être effectuée car le service IA est actuellement surchargé. Veuillez réessayer dans quelques instants.";
+           currentTestRunResults.push({
+            ...testCase,
+            actualOutput: `ERREUR IA: Service surchargé`,
+            passed: false,
+          });
+        } else {
+            toast({
+            title: dialogTitle,
+            description: errorMsg,
+            variant: "destructive"
+          });
+          currentTestRunResults.push({
+            ...testCase,
+            actualOutput: `ERREUR SYSTÈME: ${errorMsg}`,
+            passed: false,
+          });
+        }
         setTestResults([...currentTestRunResults]);
         setErrorForDialog({
-            title: "Erreur Système Critique",
-            aiExplanation: errorMsg,
+            title: dialogTitle,
+            aiExplanation: dialogExplanation,
+            rawError: isAIServiceError(errorMsg) ? undefined : errorMsg,
             codeSnapshot: code,
           });
         setErrorDialogIsOpen(true);
-        toast({
-          title: `Erreur Système dans le Test : ${testCase.name}`,
-          description: errorMsg,
-          variant: "destructive"
-        });
         break;
       }
     }
     
-    if (!errorDialogIsOpen) { 
+    if (!anErrorOccurred) { 
         toast({
         title: "Exécution des Tests Terminée",
         description: `${currentTestRunResults.filter(r => r.passed).length}/${currentTestRunResults.length} tests réussis.`,
@@ -200,6 +248,7 @@ export default function IdePage() {
         });
     }
     setIsProcessing(false);
+    // isFetchingExplanation is reset within its own try/finally or if an outer error occurs.
   }, [code, userTestCases, toast]);
 
 
@@ -265,7 +314,15 @@ export default function IdePage() {
         toast({ title: 'Génération Échouée', description: 'L\'IA n\'a pas pu générer de cas de test ou le format était incorrect.', variant: 'destructive' });
       }
     } catch (error: any) {
-      toast({ title: 'Erreur de Génération IA', description: error.message || 'Une erreur inconnue est survenue.', variant: 'destructive' });
+      if (isAIServiceError(error.message)) {
+         toast({
+          title: "Service IA Indisponible",
+          description: "La génération de tests a échoué car le service IA est temporairement surchargé. Veuillez réessayer plus tard.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: 'Erreur de Génération IA', description: error.message || 'Une erreur inconnue est survenue.', variant: 'destructive' });
+      }
     } finally {
       setIsGeneratingTests(false);
     }
@@ -320,20 +377,23 @@ export default function IdePage() {
             </Panel>
             <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" />
             <Panel defaultSize={50} minSize={25} className="min-h-0 pt-1">
-               <TestResultsPanel results={testResults} isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0} />
+               <TestResultsPanel results={testResults} isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0 && !errorDialogIsOpen} />
             </Panel>
           </PanelGroup>
         </Panel>
       </PanelGroup>
 
       {errorForDialog && (
-        <AlertDialog open={errorDialogIsOpen} onOpenChange={setErrorDialogIsOpen}>
+        <AlertDialog open={errorDialogIsOpen} onOpenChange={(isOpen) => {
+          setErrorDialogIsOpen(isOpen);
+          if (!isOpen) setErrorForDialog(null);
+        }}>
           <AlertDialogContent className="max-w-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle>{errorForDialog.title}</AlertDialogTitle>
             </AlertDialogHeader>
             <div className="mt-2 text-sm text-foreground space-y-4">
-               {isFetchingExplanation && !errorForDialog.aiExplanation.startsWith("L'assistant IA n'a pas pu") ? (
+               {isFetchingExplanation && !errorForDialog.aiExplanation.startsWith("L'assistant IA est temporairement") && !errorForDialog.aiExplanation.startsWith("L'assistant IA n'a pas pu") ? (
                 <div className="flex items-center justify-center p-8">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   <p className="ml-2">L'assistant IA prépare une explication...</p>
@@ -342,7 +402,7 @@ export default function IdePage() {
                 <>
                   <p className="font-semibold">Explication de l'IA :</p>
                   <ScrollArea className="h-auto max-h-40 w-full rounded-md border p-3 bg-muted/50">
-                    <p className="text-sm whitespace-pre-wrap break-words">
+                    <p className="text-sm whitespace-pre-wrap break-words font-sans">
                       {errorForDialog.aiExplanation}
                     </p>
                   </ScrollArea>
@@ -370,7 +430,7 @@ export default function IdePage() {
               )}
             </div>
             <AlertDialogFooter>
-              <AlertDialogAction onClick={() => setErrorDialogIsOpen(false)} disabled={isFetchingExplanation}>
+              <AlertDialogAction onClick={() => {setErrorDialogIsOpen(false); setErrorForDialog(null);}} disabled={isFetchingExplanation}>
                 Fermer
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -379,5 +439,4 @@ export default function IdePage() {
       )}
     </div>
   );
-
-    
+}
