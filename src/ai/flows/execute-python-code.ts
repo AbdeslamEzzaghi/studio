@@ -64,10 +64,15 @@ Instructions for handling the \`input()\` function in the Python code:
 5.  If the number of \`input()\` calls in the Python code exceeds the number of lines provided in 'testInput', any subsequent \`input()\` calls should effectively receive/return an empty string.
 6.  If the 'testInput' parameter was genuinely not provided to you by the system calling you (meaning the value for "{{{testInput}}}" above would be empty because the parameter was absent, not just an empty string or a string with only newlines), AND the Python code calls \`input()\`, then (and only then) you should state clearly in your errorOutput: "Interactive input is not supported for general simulation. Please provide a testInput for specific scenarios." After stating this, if the code attempts to use the result of \`input()\`, you can assume it results in an empty string or handle it gracefully to simulate the rest of the code.
 
-Given that the system calling you attempts to always provide a 'testInput' (even if it's an empty string, or a string of multiple empty lines from a test case), you should prioritize using the "{{{testInput}}}" value as described in points 1-5.
-
-If the code executes successfully, provide ONLY the text that would be printed to the standard output in the 'successOutput' field, and the 'errorOutput' field should be null.
-If the code encounters an error during execution, provide a Python-like traceback or a clear description of the error in the 'errorOutput' field, and the 'successOutput' field should be null.
+Output Instructions:
+- If the code executes successfully, provide ONLY the text that would be printed to the standard output in the 'successOutput' field. The 'errorOutput' field MUST be null.
+- For clarity:
+    - If the Python code is \`print("hello")\`, then \`successOutput\` MUST be the string \`"hello"\`.
+    - If the Python code is \`print("The sum is:", 1+2)\`, then \`successOutput\` MUST be the string \`"The sum is: 3"\` (or similar, respecting Python's print behavior with multiple arguments).
+    - If the Python code is \`print("")\`, then \`successOutput\` MUST be the empty string \`""\`.
+    - If the Python code executes without errors but prints nothing (e.g., a script with only assignments like \`x = 1\`), then \`successOutput\` MUST also be the empty string \`""\`.
+    - The \`successOutput\` field should be \`null\` *only if* an error occurred during execution, in which case the \`errorOutput\` field will contain the error details.
+- If the code encounters an error during execution, provide a Python-like traceback or a clear description of the error in the 'errorOutput' field. The 'successOutput' field MUST be null.
 
 Ensure your entire response is a single JSON object matching the specified output schema. Do not add any conversational preamble.
 `,
@@ -82,21 +87,22 @@ const executePythonCodeFlow = ai.defineFlow(
   async (input: ExecutePythonCodeInput): Promise<ExecutePythonCodeOutput> => {
     const effectiveInput = {
         ...input,
-        testInput: input.testInput === undefined ? "" : input.testInput, 
+        testInput: input.testInput === undefined ? "" : input.testInput,
     };
     const {output} = await prompt(effectiveInput);
 
     if (output?.errorOutput) {
       return { successOutput: null, errorOutput: output.errorOutput };
     }
-    if (output?.successOutput !== undefined && output?.successOutput !== null) { 
-      // Allow empty string as valid success output
+    if (output?.successOutput !== undefined && output?.successOutput !== null) {
+      // This covers empty string "" as valid success output
       return { successOutput: output.successOutput, errorOutput: null };
     }
     // Fallback if AI response is not as expected or both are null/undefined
-    return { 
-      successOutput: null, 
-      errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect." 
+    return {
+      successOutput: null,
+      errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect."
     };
   }
 );
+
