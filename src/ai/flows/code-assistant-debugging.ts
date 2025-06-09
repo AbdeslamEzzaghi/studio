@@ -2,16 +2,16 @@
 'use server';
 
 /**
- * @fileOverview This file defines a Genkit flow for providing debugging suggestions and explanations
- * in French, tailored for students, based on code errors and output.
+ * @fileOverview This file defines a function for providing debugging suggestions and explanations
+ * in French, tailored for students, based on code errors and output, using OpenRouter.
  *
  * - codeAssistantDebugging - A function that takes code, output, and errors as input and returns debugging suggestions/explanations.
  * - CodeAssistantDebuggingInput - The input type for the codeAssistantDebugging function.
  * - CodeAssistantDebuggingOutput - The return type for the codeAssistantDebugging function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { z } from 'zod';
+import { getOpenRouterChatCompletion } from '@/ai/openrouter/simple-chat';
 
 const CodeAssistantDebuggingInputSchema = z.object({
   code: z.string().describe('The Python code to debug.'),
@@ -25,15 +25,8 @@ const CodeAssistantDebuggingOutputSchema = z.object({
 });
 export type CodeAssistantDebuggingOutput = z.infer<typeof CodeAssistantDebuggingOutputSchema>;
 
-export async function codeAssistantDebugging(input: CodeAssistantDebuggingInput): Promise<CodeAssistantDebuggingOutput> {
-  return codeAssistantDebuggingFlow(input);
-}
-
-const prompt = ai.definePrompt({
-  name: 'codeAssistantDebuggingPrompt',
-  input: {schema: CodeAssistantDebuggingInputSchema},
-  output: {schema: CodeAssistantDebuggingOutputSchema},
-  prompt: `Tu es un assistant pédagogique IA spécialisé en programmation Python pour des lycéens ou étudiants débutants.
+function constructOpenRouterPrompt(input: CodeAssistantDebuggingInput): string {
+  return `Tu es un assistant pédagogique IA spécialisé en programmation Python pour des lycéens ou étudiants débutants.
 Le code d'un étudiant a produit une erreur. Ta tâche est d'expliquer cette erreur à l'étudiant en **français**, de manière **concise et claire**.
 
 Concentre-toi sur les points suivants :
@@ -46,33 +39,82 @@ Concentre-toi sur les points suivants :
 
 Voici le code de l'étudiant :
 \`\`\`python
-{{{code}}}
+${input.code}
 \`\`\`
 
 Voici le message d'erreur brut produit lors de la tentative d'exécution du code (ou d'une simulation) :
 \`\`\`
-{{{errors}}}
+${input.errors}
 \`\`\`
 
 (Le champ 'output' ci-dessous peut être vide ou contenir une sortie d'avant que l'erreur ne se produise. L'information principale est le champ 'errors'.)
 Sortie (si disponible) avant l'erreur :
 \`\`\`
-{{{output}}}
+${input.output}
 \`\`\`
 
-Merci de fournir ton explication et tes conseils **de façon concise** en français, formatés pour une bonne lisibilité (utilise des retours à la ligne, des listes si pertinent) :
-Explication et Conseils (concis) :
-`,
-});
+Ton objectif est de retourner une explication et des conseils **de façon concise** en français.
+Ta réponse entière DOIT être un objet JSON unique correspondant au schéma suivant. N'ajoute aucun préambule conversationnel ni aucune explication en dehors de la structure JSON.
+Le schéma JSON est :
+{
+  "suggestions": "string (L'explication et les conseils de débogage en français.)"
+}
 
-const codeAssistantDebuggingFlow = ai.defineFlow(
-  {
-    name: 'codeAssistantDebuggingFlow',
-    inputSchema: CodeAssistantDebuggingInputSchema,
-    outputSchema: CodeAssistantDebuggingOutputSchema,
-  },
-  async input => {
-    const {output} = await prompt(input);
-    return output!;
+Assure-toi que ta réponse est UNIQUEMENT l'objet JSON.
+`;
+}
+
+export async function codeAssistantDebugging(input: CodeAssistantDebuggingInput): Promise<CodeAssistantDebuggingOutput> {
+  const validatedInput = CodeAssistantDebuggingInputSchema.parse(input);
+  const prompt = constructOpenRouterPrompt(validatedInput);
+
+  let rawOutputFromAI: Partial<CodeAssistantDebuggingOutput> | null = null;
+  let openRouterError: string | null = null;
+  let fullRawReplyForLogging: string = "";
+
+  try {
+    const openRouterResponse = await getOpenRouterChatCompletion({ userMessage: prompt });
+    fullRawReplyForLogging = openRouterResponse.reply;
+
+    try {
+      let replyText = openRouterResponse.reply;
+      const jsonMarkdownMatch = replyText.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
+        replyText = jsonMarkdownMatch[1];
+      }
+      rawOutputFromAI = JSON.parse(replyText) as CodeAssistantDebuggingOutput;
+
+    } catch (e: any) {
+      console.error("---RAW OPENROUTER REPLY (Debugging) START---");
+      console.error(fullRawReplyForLogging);
+      console.error("---RAW OPENROUTER REPLY (Debugging) END---");
+      console.error("Failed to parse JSON response from OpenRouter for debugging:", e.message);
+      openRouterError = `L'IA a répondu dans un format JSON invalide pour l'assistance au débogage. Début de la réponse : ${fullRawReplyForLogging.substring(0, 100)}${fullRawReplyForLogging.length > 100 ? '...' : '' }`;
+    }
+  } catch (error: any) {
+    console.error("Error calling OpenRouter API for debugging assistance:", error);
+    openRouterError = `Erreur de communication avec le service IA (OpenRouter) pour l'assistance au débogage: ${error.message}`;
   }
-);
+
+  if (openRouterError) {
+    throw new Error(openRouterError);
+  }
+
+  if (!rawOutputFromAI || typeof rawOutputFromAI.suggestions !== 'string') {
+     const errorMsg = "L'IA n'a pas fourni de suggestions de débogage ou la réponse était vide/malformée.";
+     console.error(errorMsg, "Raw AI output:", rawOutputFromAI);
+     throw new Error(errorMsg);
+  }
+
+  // Validate the structure of the AI's output against the Zod schema
+  try {
+    const validatedOutput = CodeAssistantDebuggingOutputSchema.parse(rawOutputFromAI);
+    return validatedOutput; // This will be { suggestions: "..." }
+  } catch (validationError: any) {
+    console.error("---INVALID JSON STRUCTURE RECEIVED (Debugging)---");
+    console.error("Raw output:", JSON.stringify(rawOutputFromAI));
+    console.error("Validation error:", validationError.errors);
+    console.error("---END INVALID JSON STRUCTURE (Debugging)---");
+    throw new Error(`L'IA a retourné une structure JSON inattendue pour les suggestions de débogage. Détails: ${validationError.message}`);
+  }
+}
