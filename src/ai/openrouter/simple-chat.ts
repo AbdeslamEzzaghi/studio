@@ -1,0 +1,83 @@
+
+'use server';
+/**
+ * @fileOverview A utility to interact with the OpenRouter API for chat completions.
+ *
+ * - getOpenRouterChatCompletion - A function that sends a message to an OpenRouter model and gets a reply.
+ * - OpenRouterInput - The input type for the getOpenRouterChatCompletion function.
+ * - OpenRouterOutput - The return type for the getOpenRouterChatCompletion function.
+ */
+
+import { z } from 'zod';
+
+const OpenRouterInputSchema = z.object({
+  userMessage: z.string().describe("The message from the user."),
+  model: z.string().optional().default("deepseek/deepseek-r1-0528:free").describe("The OpenRouter model to use."),
+});
+export type OpenRouterInput = z.infer<typeof OpenRouterInputSchema>;
+
+const OpenRouterOutputSchema = z.object({
+  reply: z.string().describe("The AI's reply."),
+});
+export type OpenRouterOutput = z.infer<typeof OpenRouterOutputSchema>;
+
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const HTTP_REFERER = process.env.OPENROUTER_HTTP_REFERER;
+const X_TITLE = process.env.OPENROUTER_X_TITLE;
+
+export async function getOpenRouterChatCompletion(input: OpenRouterInput): Promise<OpenRouterOutput> {
+  if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === "<YOUR_OPENROUTER_API_KEY_HERE>") {
+    console.error("OpenRouter API key is not configured or is still the placeholder.");
+    throw new Error("OpenRouter API key is not configured. Please set it in the .env file.");
+  }
+
+  const headers: HeadersInit = {
+    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+    "Content-Type": "application/json"
+  };
+  if (HTTP_REFERER) {
+    headers["HTTP-Referer"] = HTTP_REFERER;
+  }
+  if (X_TITLE) {
+    headers["X-Title"] = X_TITLE;
+  }
+
+  const modelToUse = input.model || "deepseek/deepseek-r1-0528:free";
+
+  let response;
+  try {
+    response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify({
+        "model": modelToUse,
+        "messages": [
+          {
+            "role": "user",
+            "content": input.userMessage
+          }
+        ]
+      })
+    });
+  } catch (error: any) {
+    console.error("Network error calling OpenRouter API:", error);
+    throw new Error(`Network error calling OpenRouter API: ${error.message}`);
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(`OpenRouter API error: ${response.status} ${response.statusText}`, errorBody);
+    throw new Error(`OpenRouter API request failed: ${response.status} ${response.statusText}. Body: ${errorBody}`);
+  }
+
+  const data = await response.json();
+
+  const replyContent = data.choices?.[0]?.message?.content;
+
+  if (typeof replyContent !== 'string') {
+    console.error("Unexpected response format from OpenRouter:", data);
+    throw new Error("Failed to extract reply content from OpenRouter response.");
+  }
+
+  return { reply: replyContent };
+}
