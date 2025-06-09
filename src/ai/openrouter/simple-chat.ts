@@ -76,12 +76,21 @@ export async function getOpenRouterChatCompletion(input: OpenRouterInput): Promi
 
   const data = await response.json();
 
+  // Check for OpenRouter's own error structure first
+  if (data.error) {
+    console.error("OpenRouter API returned an error:", data.error);
+    const errorMessage = data.error.message || "Unknown error from OpenRouter API.";
+    const errorCode = data.error.code ? ` (Code: ${data.error.code})` : "";
+    throw new Error(`OpenRouter API Error: ${errorMessage}${errorCode}`);
+  }
+
   const replyContent = data.choices?.[0]?.message?.content;
 
   if (typeof replyContent !== 'string') {
-    console.error("Unexpected response format from OpenRouter:", data);
-    throw new Error("Failed to extract reply content from OpenRouter response.");
+    console.error("Unexpected response format from OpenRouter (after checking for data.error):", data);
+    throw new Error("Failed to extract reply content from OpenRouter response. The response structure was not as expected.");
   }
 
   return { reply: replyContent };
 }
+
