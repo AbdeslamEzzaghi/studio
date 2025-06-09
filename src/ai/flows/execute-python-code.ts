@@ -1,7 +1,7 @@
 
 'use server';
 /**
- * @fileOverview A Genkit flow to simulate Python code execution using an LLM.
+ * @fileOverview A flow to simulate Python code execution using the OpenRouter API.
  * It can optionally take a specific input for test case simulation.
  * The testInput can contain multiple lines, each corresponding to a sequential input() call.
  *
@@ -10,8 +10,8 @@
  * - ExecutePythonCodeOutput - The return type for the executePythonCode function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { z } from 'genkit';
+import { getOpenRouterChatCompletion } from '@/ai/openrouter/simple-chat';
 
 const ExecutePythonCodeInputSchema = z.object({
   code: z.string().describe('The Python code to simulate.'),
@@ -35,101 +35,129 @@ const ExecutePythonCodeOutputSchema = z.object({
 });
 export type ExecutePythonCodeOutput = z.infer<typeof ExecutePythonCodeOutputSchema>;
 
+function constructOpenRouterPrompt(input: ExecutePythonCodeInput): string {
+  const codeBlock = `\`\`\`python\n${input.code}\n\`\`\``;
+  const testInputBlock = input.testInput !== undefined ? `"${input.testInput.replace(/\n/g, '\\n')}"` : '""';
+
+  return `You are a Python code execution simulator.
+Your task is to simulate the execution of the provided Python code and return its output or error.
+
+The Python code to simulate is:
+${codeBlock}
+
+The 'testInput' (which represents what a user would type if the \`input()\` function is called) is:
+${testInputBlock}
+
+Instructions for handling the \`input()\` function in the Python code:
+1.  The 'testInput' parameter provided may contain multiple lines of text, separated by newline characters (\\n).
+2.  Each line in the 'testInput' corresponds to a sequential call to the \`input()\` function in the Python code.
+3.  You MUST use these lines in order. The first \`input()\` call uses the first line from 'testInput', the second \`input()\` call uses the second line, and so on.
+4.  This is true EVEN IF a line in 'testInput' is an empty string (""). An empty string is a valid and intentional input for that specific \`input()\` call and should be used.
+5.  If the number of \`input()\` calls in the Python code exceeds the number of lines provided in 'testInput', any subsequent \`input()\` calls should effectively receive/return an empty string.
+6.  If the 'testInput' parameter was genuinely not provided by the system (meaning its value in this prompt is empty because the parameter was absent, not just an empty string or a string with only newlines), AND the Python code calls \`input()\`, then (and only then) you should state clearly in your errorOutput: "Interactive input is not supported for general simulation. Please provide a testInput for specific scenarios." After stating this, if the code attempts to use the result of \`input()\`, you can assume it results in an empty string or handle it gracefully to simulate the rest ofthe code.
+
+Output Instructions:
+Your entire response MUST be a single JSON object matching the following schema. Do not add any conversational preamble or explanations outside the JSON structure.
+The JSON schema is:
+{
+  "successOutput": "string | null (The simulated standard output or null if error. If the Python code runs successfully but prints nothing, successOutput MUST be an empty string \\"\\". It MUST NOT be the JavaScript null value unless an error occurred. It MUST NOT be the string \\"null\\" unless the Python code itself explicitly prints the literal string \\"null\\".)",
+  "errorOutput": "string | null (A Python-like traceback or a clear description of the error if execution fails. Null if execution is successful.)"
+}
+
+For example:
+- Code: \`print("hello")\`, TestInput: "" -> JSON: \`{"successOutput": "hello", "errorOutput": null}\`
+- Code: \`print("The sum is:", 1+2)\`, TestInput: "" -> JSON: \`{"successOutput": "The sum is: 3", "errorOutput": null}\`
+- Code: \`print("")\`, TestInput: "" -> JSON: \`{"successOutput": "", "errorOutput": null}\`
+- Code: \`x=1\` (no print), TestInput: "" -> JSON: \`{"successOutput": "", "errorOutput": null}\`
+- Code: \`print("null")\`, TestInput: "" -> JSON: \`{"successOutput": "null", "errorOutput": null}\`
+- Code: \`1/0\`, TestInput: "" -> JSON: \`{"successOutput": null, "errorOutput": "Traceback (most recent call last):\\n  File \\"<stdin>\\", line 1, in <module>\\nZeroDivisionError: division by zero"}\`
+
+Ensure your response is ONLY the JSON object.
+`;
+}
+
 export async function executePythonCode(
   input: ExecutePythonCodeInput
 ): Promise<ExecutePythonCodeOutput> {
-  return executePythonCodeFlow(input);
-}
+  const validatedInput = ExecutePythonCodeInputSchema.parse(input);
+  const prompt = constructOpenRouterPrompt(validatedInput);
 
-const prompt = ai.definePrompt({
-  name: 'executePythonCodePrompt',
-  input: {schema: ExecutePythonCodeInputSchema},
-  output: {schema: ExecutePythonCodeOutputSchema},
-  prompt: `You are a Python code execution simulator.
-Your task is to simulate the execution of the provided Python code and return its output or error.
+  let rawOutputFromAI: Partial<ExecutePythonCodeOutput> | null = null;
+  let openRouterError: string | null = null;
 
-You will receive a 'code' parameter and an optional 'testInput' parameter.
-- The 'code' to simulate is:
-\`\`\`python
-{{{code}}}
-\`\`\`
-- The 'testInput' (which represents what a user would type if the \`input()\` function is called) is:
-"{{{testInput}}}"
+  try {
+    const openRouterResponse = await getOpenRouterChatCompletion({
+      userMessage: prompt,
+      // You can specify a model here if you want to override the default in getOpenRouterChatCompletion
+      // model: "deepseek/deepseek-r1-0528:free"
+    });
 
-Instructions for handling the \`input()\` function in the Python code:
-1.  The 'testInput' parameter provided to you (e.g., "{{{testInput}}}") may contain multiple lines of text, separated by newline characters (\\n).
-2.  Each line in the 'testInput' corresponds to a sequential call to the \`input()\` function in the Python code.
-3.  You MUST use these lines in order. The first \`input()\` call uses the first line from "{{{testInput}}}", the second \`input()\` call uses the second line, and so on.
-4.  This is true EVEN IF a line in 'testInput' is an empty string (""). An empty string is a valid and intentional input for that specific \`input()\` call and should be used.
-5.  If the number of \`input()\` calls in the Python code exceeds the number of lines provided in 'testInput', any subsequent \`input()\` calls should effectively receive/return an empty string.
-6.  If the 'testInput' parameter was genuinely not provided to you by the system calling you (meaning the value for "{{{testInput}}}" above would be empty because the parameter was absent, not just an empty string or a string with only newlines), AND the Python code calls \`input()\`, then (and only then) you should state clearly in your errorOutput: "Interactive input is not supported for general simulation. Please provide a testInput for specific scenarios." After stating this, if the code attempts to use the result of \`input()\`, you can assume it results in an empty string or handle it gracefully to simulate the rest of the code.
-
-Output Instructions:
-- If the code executes successfully:
-    - The 'successOutput' field MUST contain the exact text that would be printed to the standard output.
-    - The 'errorOutput' field MUST be JavaScript \`null\`.
-    - **Crucially**: \`successOutput\` MUST NOT be the JavaScript \`null\` value. It MUST NOT be the string \`"null"\` UNLESS the Python code *itself explicitly prints the literal string "null"*.
-    - If the Python code runs successfully but prints nothing (e.g., \`x = 1\` or \`print()\`), then \`successOutput\` MUST be an empty string \`""\`.
-- If the code encounters an error during execution:
-    - The 'errorOutput' field MUST contain a Python-like traceback or a clear description of the error.
-    - The 'successOutput' field MUST be JavaScript \`null\`.
-
-For example:
-    - Code: \`print("hello")\` -> \`successOutput: "hello"\`, \`errorOutput: null\`
-    - Code: \`print("The sum is:", 1+2)\` -> \`successOutput: "The sum is: 3"\`, \`errorOutput: null\`
-    - Code: \`print("")\` -> \`successOutput: ""\`, \`errorOutput: null\`
-    - Code: \`x=1\` (no print) -> \`successOutput: ""\`, \`errorOutput: null\`
-    - Code: \`print("null")\` -> \`successOutput: "null"\`, \`errorOutput: null\`
-    - Code: \`1/0\` -> \`successOutput: null\`, \`errorOutput: "Traceback (most recent call last):\\n  File \\"<stdin>\\", line 1, in <module>\\nZeroDivisionError: division by zero"\`
-
-Ensure your entire response is a single JSON object matching the specified output schema. Do not add any conversational preamble.
-`,
-});
-
-const executePythonCodeFlow = ai.defineFlow(
-  {
-    name: 'executePythonCodeFlow',
-    inputSchema: ExecutePythonCodeInputSchema,
-    outputSchema: ExecutePythonCodeOutputSchema,
-  },
-  async (input: ExecutePythonCodeInput): Promise<ExecutePythonCodeOutput> => {
-    const effectiveInput = {
-        ...input,
-        testInput: input.testInput === undefined ? "" : input.testInput,
-    };
-    const {output: rawOutput} = await prompt(effectiveInput);
-
-    // Trim potential successOutput early to handle cases like "null\n"
-    const trimmedSuccessOutput = rawOutput?.successOutput?.trim();
-    const errorOutputFromAI = rawOutput?.errorOutput;
-
-    // Path 1: AI returns an error directly
-    if (errorOutputFromAI) {
-      return { successOutput: null, errorOutput: errorOutputFromAI };
+    // Try to parse the AI's reply as JSON
+    try {
+      // Sometimes the AI might wrap the JSON in ```json ... ```, attempt to strip it.
+      let replyText = openRouterResponse.reply;
+      const jsonMarkdownMatch = replyText.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
+        replyText = jsonMarkdownMatch[1];
+      }
+      rawOutputFromAI = JSON.parse(replyText) as ExecutePythonCodeOutput;
+    } catch (e: any) {
+      console.error("Failed to parse JSON response from OpenRouter:", e.message);
+      console.error("Raw OpenRouter reply:", openRouterResponse.reply);
+      openRouterError = `L'IA a répondu dans un format JSON invalide. Réponse brute: ${openRouterResponse.reply.substring(0, 200)}${openRouterResponse.reply.length > 200 ? '...' : '' }`;
     }
+  } catch (error: any) {
+    console.error("Error calling OpenRouter API for code execution:", error);
+    openRouterError = `Erreur de communication avec le service IA (OpenRouter): ${error.message}`;
+  }
 
-    // Path 2: Safeguard - AI returns the string "null" (after trim) as success output
-    // This is considered an AI misinterpretation unless the code explicitly prints "null".
-    if (trimmedSuccessOutput === "null") {
-      return {
-        successOutput: null, // Convert to JavaScript null
-        errorOutput: "L'IA a retourné la chaîne de caractères \"null\" comme sortie réussie, ce qui est probablement une erreur de simulation. Si votre code est censé afficher \"null\", veuillez ignorer ce message. Sinon, vérifiez le code ou réessayez."
-      };
-    }
+  if (openRouterError) {
+    return { successOutput: null, errorOutput: openRouterError };
+  }
 
-    // Path 3: AI returns a valid successOutput (neither an error, nor the string "null")
-    // An empty string "" is a valid successOutput if the python code prints nothing.
-    // `trimmedSuccessOutput` can be an empty string here and that's valid.
-    if (trimmedSuccessOutput !== undefined && trimmedSuccessOutput !== null) {
-      return { successOutput: trimmedSuccessOutput, errorOutput: null };
-    }
-
-    // Path 4: Fallback if AI response is not as expected or both outputs are effectively null/undefined
-    // This would catch cases where rawOutput itself was undefined, or rawOutput.successOutput was undefined/null
-    // and it wasn't caught by the conditions above.
-    return {
+  if (!rawOutputFromAI) {
+     return {
       successOutput: null,
-      errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect (e.g., sortie indéfinie)."
+      errorOutput: "L'IA n'a pas fourni de réponse ou la réponse était vide après la tentative de traitement."
     };
   }
-);
+  
+  // Validate the structure of the parsed output
+  // This is a basic check; for more robust validation, you might use Zod if the AI becomes reliable
+  const hasSuccess = rawOutputFromAI.hasOwnProperty('successOutput');
+  const hasError = rawOutputFromAI.hasOwnProperty('errorOutput');
+
+  if (! ( (hasSuccess && rawOutputFromAI.successOutput !== undefined) || (hasError && rawOutputFromAI.errorOutput !== undefined) ) ) {
+    return {
+      successOutput: null,
+      errorOutput: `L'IA a retourné une structure JSON inattendue. Reçu : ${JSON.stringify(rawOutputFromAI).substring(0,200)}`,
+    }
+  }
+
+
+  // Existing post-processing logic from the original Genkit flow
+  const trimmedSuccessOutput = typeof rawOutputFromAI.successOutput === 'string' ? rawOutputFromAI.successOutput.trim() : rawOutputFromAI.successOutput;
+  const errorOutputFromAI = rawOutputFromAI.errorOutput;
+
+  if (errorOutputFromAI) {
+    return { successOutput: null, errorOutput: errorOutputFromAI };
+  }
+
+  if (trimmedSuccessOutput === "null") {
+    return {
+      successOutput: null,
+      errorOutput: "L'IA a retourné la chaîne de caractères \"null\" comme sortie réussie, ce qui est probablement une erreur de simulation. Si votre code est censé afficher \"null\", veuillez ignorer ce message. Sinon, vérifiez le code ou réessayez."
+    };
+  }
+  
+  if (trimmedSuccessOutput !== undefined && trimmedSuccessOutput !== null) {
+     // Ensure successOutput is a string, even if it's empty.
+    return { successOutput: String(trimmedSuccessOutput), errorOutput: null };
+  }
+
+  // Fallback if AI response is not as expected
+  return {
+    successOutput: null,
+    errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect (e.g., sortie indéfinie ou structure JSON invalide après parsing)."
+  };
+}
