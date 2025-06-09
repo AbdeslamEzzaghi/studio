@@ -22,8 +22,8 @@ const OpenRouterOutputSchema = z.object({
 export type OpenRouterOutput = z.infer<typeof OpenRouterOutputSchema>;
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const HTTP_REFERER = process.env.OPENROUTER_HTTP_REFERER;
-const X_TITLE = process.env.OPENROUTER_X_TITLE;
+const HTTP_REFERER_PLACEHOLDER = "<YOUR_SITE_URL>";
+const X_TITLE_PLACEHOLDER = "<YOUR_SITE_NAME>";
 
 export async function getOpenRouterChatCompletion(input: OpenRouterInput): Promise<OpenRouterOutput> {
   if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === "<YOUR_OPENROUTER_API_KEY_HERE>") {
@@ -35,11 +35,15 @@ export async function getOpenRouterChatCompletion(input: OpenRouterInput): Promi
     "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
     "Content-Type": "application/json"
   };
-  if (HTTP_REFERER) {
-    headers["HTTP-Referer"] = HTTP_REFERER;
+
+  const httpReferer = process.env.OPENROUTER_HTTP_REFERER;
+  const xTitle = process.env.OPENROUTER_X_TITLE;
+
+  if (httpReferer && httpReferer !== HTTP_REFERER_PLACEHOLDER) {
+    headers["HTTP-Referer"] = httpReferer;
   }
-  if (X_TITLE) {
-    headers["X-Title"] = X_TITLE;
+  if (xTitle && xTitle !== X_TITLE_PLACEHOLDER) {
+    headers["X-Title"] = xTitle;
   }
 
   const modelToUse = input.model || "deepseek/deepseek-r1-0528:free";

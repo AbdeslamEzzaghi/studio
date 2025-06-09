@@ -84,17 +84,15 @@ export async function executePythonCode(
 
   let rawOutputFromAI: Partial<ExecutePythonCodeOutput> | null = null;
   let openRouterError: string | null = null;
+  let fullRawReplyForLogging: string = "";
 
   try {
     const openRouterResponse = await getOpenRouterChatCompletion({
       userMessage: prompt,
-      // You can specify a model here if you want to override the default in getOpenRouterChatCompletion
-      // model: "deepseek/deepseek-r1-0528:free"
     });
+    fullRawReplyForLogging = openRouterResponse.reply;
 
-    // Try to parse the AI's reply as JSON
     try {
-      // Sometimes the AI might wrap the JSON in ```json ... ```, attempt to strip it.
       let replyText = openRouterResponse.reply;
       const jsonMarkdownMatch = replyText.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
@@ -102,9 +100,11 @@ export async function executePythonCode(
       }
       rawOutputFromAI = JSON.parse(replyText) as ExecutePythonCodeOutput;
     } catch (e: any) {
+      console.error("---RAW OPENROUTER REPLY START---");
+      console.error(fullRawReplyForLogging);
+      console.error("---RAW OPENROUTER REPLY END---");
       console.error("Failed to parse JSON response from OpenRouter:", e.message);
-      console.error("Raw OpenRouter reply:", openRouterResponse.reply);
-      openRouterError = `L'IA a répondu dans un format JSON invalide. Réponse brute: ${openRouterResponse.reply.substring(0, 200)}${openRouterResponse.reply.length > 200 ? '...' : '' }`;
+      openRouterError = `L'IA a répondu dans un format JSON invalide. Vérifiez les logs du serveur pour la réponse brute complète. Début de la réponse : ${fullRawReplyForLogging.substring(0, 70)}${fullRawReplyForLogging.length > 70 ? '...' : '' }`;
     }
   } catch (error: any) {
     console.error("Error calling OpenRouter API for code execution:", error);
@@ -122,20 +122,19 @@ export async function executePythonCode(
     };
   }
   
-  // Validate the structure of the parsed output
-  // This is a basic check; for more robust validation, you might use Zod if the AI becomes reliable
   const hasSuccess = rawOutputFromAI.hasOwnProperty('successOutput');
   const hasError = rawOutputFromAI.hasOwnProperty('errorOutput');
 
   if (! ( (hasSuccess && rawOutputFromAI.successOutput !== undefined) || (hasError && rawOutputFromAI.errorOutput !== undefined) ) ) {
+    console.error("---UNEXPECTED JSON STRUCTURE RECEIVED---");
+    console.error(JSON.stringify(rawOutputFromAI));
+    console.error("---END UNEXPECTED JSON STRUCTURE---");
     return {
       successOutput: null,
-      errorOutput: `L'IA a retourné une structure JSON inattendue. Reçu : ${JSON.stringify(rawOutputFromAI).substring(0,200)}`,
+      errorOutput: `L'IA a retourné une structure JSON inattendue. Vérifiez les logs du serveur. Reçu (tronqué) : ${JSON.stringify(rawOutputFromAI).substring(0,100)}...`,
     }
   }
 
-
-  // Existing post-processing logic from the original Genkit flow
   const trimmedSuccessOutput = typeof rawOutputFromAI.successOutput === 'string' ? rawOutputFromAI.successOutput.trim() : rawOutputFromAI.successOutput;
   const errorOutputFromAI = rawOutputFromAI.errorOutput;
 
@@ -151,13 +150,11 @@ export async function executePythonCode(
   }
   
   if (trimmedSuccessOutput !== undefined && trimmedSuccessOutput !== null) {
-     // Ensure successOutput is a string, even if it's empty.
     return { successOutput: String(trimmedSuccessOutput), errorOutput: null };
   }
 
-  // Fallback if AI response is not as expected
   return {
     successOutput: null,
-    errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect (e.g., sortie indéfinie ou structure JSON invalide après parsing)."
+    errorOutput: "L'IA n'a pas pu simuler l'exécution ou le format de la réponse est incorrect (e.g., sortie indéfinie ou structure JSON invalide après parsing). Vérifiez les logs du serveur pour la réponse brute de l'IA."
   };
 }
