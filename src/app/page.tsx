@@ -12,6 +12,7 @@ import { runPythonLocally } from '@/lib/pyExec';
 import { analyzePythonError } from '@/lib/errorAnalyzer';
 import { generateTestCasesForCode, type GenerateTestCasesOutput } from '@/ai/flows/generate-test-cases-flow';
 import { codeAssistantDebugging } from '@/ai/flows/code-assistant-debugging';
+import { explainTestFailure } from '@/ai/flows/test-failure-explanation';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +41,8 @@ export interface TestCase {
 export interface TestResult extends TestCase {
   actualOutput: string;
   passed: boolean;
+  isLoadingExplanation?: boolean;
+  failureExplanation?: string;
 }
 
 const initialTestCases: TestCase[] = [
@@ -106,6 +109,62 @@ export default function IdePage() {
     setCode('');
     toast({ title: 'Code Nettoyé', description: "L'éditeur a été vidé." });
   }, [toast]);
+
+  const handleRequestExplanation = useCallback(async (testResult: TestResult) => {
+    if (!testResult || testResult.passed) return;
+
+    // Update the specific test result to show loading state
+    setTestResults(prev => prev.map(result => 
+      result.id === testResult.id 
+        ? { ...result, isLoadingExplanation: true }
+        : result
+    ));
+
+    try {
+      const explanation = await explainTestFailure({
+        code: code,
+        testName: testResult.name,
+        inputs: testResult.inputs,
+        expectedOutput: testResult.expectedOutput,
+        actualOutput: testResult.actualOutput,
+      });
+
+      // Update the test result with the explanation
+      setTestResults(prev => prev.map(result => 
+        result.id === testResult.id 
+          ? { 
+              ...result, 
+              isLoadingExplanation: false, 
+              failureExplanation: explanation.explanation 
+            }
+          : result
+      ));
+
+      toast({ 
+        title: 'Explication Générée', 
+        description: 'L\'IA a analysé l\'échec du test et fourni une explication.' 
+      });
+
+    } catch (error: any) {
+      // Update the test result to remove loading state
+      setTestResults(prev => prev.map(result => 
+        result.id === testResult.id 
+          ? { ...result, isLoadingExplanation: false }
+          : result
+      ));
+
+      let errorMessage = "Impossible d'obtenir une explication de l'IA.";
+      if (isAIServiceError(error.message)) {
+        errorMessage = "Le service IA est temporairement indisponible. Veuillez réessayer plus tard.";
+      }
+
+      toast({ 
+        title: 'Erreur d\'Explication', 
+        description: errorMessage,
+        variant: 'destructive' 
+      });
+    }
+  }, [code, toast]);
 
   const isAIServiceError = (errorMessage: string): boolean => {
     const lowerCaseMessage = errorMessage.toLowerCase();
@@ -442,7 +501,11 @@ export default function IdePage() {
             </Panel>
             <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" />
             <Panel defaultSize={50} minSize={25} className="min-h-0 pt-1">
-               <TestResultsPanel results={testResults} isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0 && !errorDialogIsOpen} />
+               <TestResultsPanel 
+                 results={testResults} 
+                 isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0 && !errorDialogIsOpen}
+                 onRequestExplanation={handleRequestExplanation}
+               />
             </Panel>
           </PanelGroup>
         </Panel>
