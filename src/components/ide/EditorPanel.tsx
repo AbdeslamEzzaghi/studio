@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 interface EditorPanelProps {
   code: string;
-  onCodeChange: (newCode: string | undefined) => void;
+  onCodeChange: (newCode: string) => void;
 }
 
 export function EditorPanel({ code, onCodeChange }: EditorPanelProps) {
@@ -22,7 +22,7 @@ export function EditorPanel({ code, onCodeChange }: EditorPanelProps) {
           language="python"
           theme="vs-dark" 
           value={code}
-          onChange={onCodeChange}
+          onChange={(value) => onCodeChange(value || '')}
           options={{
             automaticLayout: true, 
             wordWrap: 'on',

@@ -10,8 +10,8 @@
  * - ExecutePythonCodeOutput - The return type for the executePythonCode function.
  */
 
-import { z } from 'genkit';
-import { getOpenRouterChatCompletion } from '@/ai/openrouter/simple-chat';
+import { z } from 'zod';
+import { getOllamaChatCompletion } from '@/ai/ollama/chat';
 
 const ExecutePythonCodeInputSchema = z.object({
   code: z.string().describe('The Python code to simulate.'),
@@ -35,7 +35,7 @@ const ExecutePythonCodeOutputSchema = z.object({
 });
 export type ExecutePythonCodeOutput = z.infer<typeof ExecutePythonCodeOutputSchema>;
 
-function constructOpenRouterPrompt(input: ExecutePythonCodeInput): string {
+function constructOllamaPrompt(input: ExecutePythonCodeInput): string {
   const codeBlock = `\`\`\`python\n${input.code}\n\`\`\``;
   const testInputBlock = input.testInput !== undefined ? `"${input.testInput.replace(/\n/g, '\\n')}"` : '""';
 
@@ -80,39 +80,51 @@ export async function executePythonCode(
   input: ExecutePythonCodeInput
 ): Promise<ExecutePythonCodeOutput> {
   const validatedInput = ExecutePythonCodeInputSchema.parse(input);
-  const prompt = constructOpenRouterPrompt(validatedInput);
+  const prompt = constructOllamaPrompt(validatedInput);
 
   let rawOutputFromAI: Partial<ExecutePythonCodeOutput> | null = null;
-  let openRouterError: string | null = null;
+  let ollamaError: string | null = null;
   let fullRawReplyForLogging: string = "";
 
   try {
-    const openRouterResponse = await getOpenRouterChatCompletion({
+    const ollamaResponse = await getOllamaChatCompletion({
       userMessage: prompt,
     });
-    fullRawReplyForLogging = openRouterResponse.reply;
+    fullRawReplyForLogging = ollamaResponse.reply;
 
     try {
-      let replyText = openRouterResponse.reply;
-      const jsonMarkdownMatch = replyText.match(/```json\s*([\s\S]*?)\s*```/);
+      let replyText = ollamaResponse.reply.trim();
+      
+      // Try to extract JSON from markdown code blocks first
+      const jsonMarkdownMatch = replyText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
-        replyText = jsonMarkdownMatch[1];
+        replyText = jsonMarkdownMatch[1].trim();
       }
+      
+      // If the response doesn't start with {, try to find the JSON object
+      if (!replyText.startsWith('{')) {
+        const jsonMatch = replyText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          replyText = jsonMatch[0];
+        }
+      }
+      
+      console.log('🔍 Attempting to parse JSON:', replyText.substring(0, 200) + '...');
       rawOutputFromAI = JSON.parse(replyText) as ExecutePythonCodeOutput;
     } catch (e: any) {
-      console.error("---RAW OPENROUTER REPLY START---");
+      console.error("---RAW OLLAMA REPLY START---");
       console.error(fullRawReplyForLogging);
-      console.error("---RAW OPENROUTER REPLY END---");
-      console.error("Failed to parse JSON response from OpenRouter:", e.message);
-      openRouterError = `L'IA a répondu dans un format JSON invalide. Vérifiez les logs du serveur pour la réponse brute complète. Début de la réponse : ${fullRawReplyForLogging.substring(0, 70)}${fullRawReplyForLogging.length > 70 ? '...' : '' }`;
+      console.error("---RAW OLLAMA REPLY END---");
+      console.error("Failed to parse JSON response from Ollama:", e.message);
+      ollamaError = `L'IA a répondu dans un format JSON invalide. Vérifiez les logs du serveur pour la réponse brute complète. Début de la réponse : ${fullRawReplyForLogging.substring(0, 70)}${fullRawReplyForLogging.length > 70 ? '...' : '' }`;
     }
   } catch (error: any) {
-    console.error("Error calling OpenRouter API for code execution:", error);
-    openRouterError = `Erreur de communication avec le service IA (OpenRouter): ${error.message}`;
+    console.error("Error calling Ollama API for code execution:", error);
+    ollamaError = error.message;
   }
 
-  if (openRouterError) {
-    return { successOutput: null, errorOutput: openRouterError };
+  if (ollamaError) {
+    return { successOutput: null, errorOutput: ollamaError };
   }
 
   if (!rawOutputFromAI) {

@@ -163,7 +163,7 @@ export function TestCasesInputPanel({
               <Button 
                 onClick={() => handleAddInputLine(testCase.id)} 
                 variant="outline" 
-                size="xs"
+                size="sm"
                 className="mt-1 text-xs py-0.5 px-1.5 h-auto"
                 disabled={isProcessing}
               >

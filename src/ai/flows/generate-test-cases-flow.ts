@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod';
-import { getOpenRouterChatCompletion } from '@/ai/openrouter/simple-chat';
+import { getOllamaChatCompletion } from '@/ai/ollama/chat';
 
 const GenerateTestCasesInputSchema = z.object({
   code: z.string().describe('The Python code for which to generate test cases.'),
@@ -43,7 +43,7 @@ const GenerateTestCasesOutputSchema = z.object({
 });
 export type GenerateTestCasesOutput = z.infer<typeof GenerateTestCasesOutputSchema>;
 
-function constructOpenRouterPrompt(input: GenerateTestCasesInput): string {
+function constructOllamaPrompt(input: GenerateTestCasesInput): string {
   const codeBlock = `\`\`\`python\n${input.code}\n\`\`\``;
   return `You are an expert Python test case generator. Your task is to analyze the provided Python code and generate exactly 5 distinct test cases.
 
@@ -53,7 +53,9 @@ For each test case, you must provide:
     - If the code doesn't use \`input()\`, or a specific test case doesn't require any input, this array should be empty (\`[]\`).
     - If the code calls \`input()\` multiple times, provide multiple strings in the array in the order they would be entered. For example, for \`a = input()\\nb = input()\`, inputs might be \`["10", "20"]\`.
     - An empty string (\`""\`) is a valid input line if the user is expected to press Enter without typing anything.
-3.  'expectedOutput' (string): The exact string that the Python code is expected to print to the standard output (e.g., via \`print()\`) given the specified inputs for that test case.
+3.  'expectedOutput' (string):
+    - If the program runs successfully, provide the exact string printed to standard output (e.g., via \`print()\`).
+    - If the program is expected to raise an exception (e.g., \`ValueError\` on invalid input), set this field to the UPPERCASE string exactly: \"ERROR\" (do not include the traceback or message).
 
 Analyze the following Python code:
 ${codeBlock}
@@ -71,6 +73,10 @@ The JSON schema is:
   ]
 }
 
+Important formatting rules:
+- Escape newlines in strings as needed.
+- Do not include backticks around the JSON.
+
 Ensure your response is ONLY the JSON object.
 `;
 }
@@ -79,36 +85,103 @@ export async function generateTestCasesForCode(
   input: GenerateTestCasesInput
 ): Promise<GenerateTestCasesOutput> {
   const validatedInput = GenerateTestCasesInputSchema.parse(input);
-  const prompt = constructOpenRouterPrompt(validatedInput);
+  const prompt = constructOllamaPrompt(validatedInput);
   let rawOutputFromAI: Partial<GenerateTestCasesOutput> | null = null;
-  let openRouterError: string | null = null;
+  let ollamaError: string | null = null;
   let fullRawReplyForLogging: string = "";
 
   try {
-    const openRouterResponse = await getOpenRouterChatCompletion({ userMessage: prompt });
-    fullRawReplyForLogging = openRouterResponse.reply;
+    const ollamaResponse = await getOllamaChatCompletion({ userMessage: prompt });
+    fullRawReplyForLogging = ollamaResponse.reply;
 
     try {
-      let replyText = openRouterResponse.reply;
-      const jsonMarkdownMatch = replyText.match(/```json\s*([\s\S]*?)\s*```/);
+      let replyText = ollamaResponse.reply.trim();
+      
+      // Try to extract JSON from markdown code blocks first
+      const jsonMarkdownMatch = replyText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
-        replyText = jsonMarkdownMatch[1];
+        replyText = jsonMarkdownMatch[1].trim();
       }
-      rawOutputFromAI = JSON.parse(replyText) as GenerateTestCasesOutput;
+      
+      // If the response doesn't start with {, try to find the JSON object
+      if (!replyText.startsWith('{')) {
+        const jsonMatch = replyText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          replyText = jsonMatch[0];
+        }
+      }
+      
+      // Sanitize common JSON mistakes (smart quotes, trailing commas)
+      const sanitizeJson = (s: string) => {
+        let out = s.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+        // remove trailing commas before ] or }
+        out = out.replace(/,\s*([}\]])/g, '$1');
+        return out;
+      };
+
+      const sanitized = sanitizeJson(replyText);
+      console.log('🔍 Attempting to parse JSON (sanitized):', sanitized.substring(0, 200) + '...');
+
+      function tryParse(jsonText: string): any {
+        return JSON.parse(jsonText);
+      }
+
+      let parsed: any;
+      try {
+        parsed = tryParse(sanitized);
+      } catch (e1: any) {
+        // Fallback 1: if it ends with ']' but is missing the closing '}'
+        const t = sanitized.trim();
+        if (t.startsWith('{') && t.endsWith(']')) {
+          try {
+            parsed = tryParse(t + '}');
+          } catch (_) {
+            // ignore, try next fallback
+          }
+        }
+
+        // Fallback 2: extract the array part and wrap into {"generatedTestCases": ...}
+        if (!parsed) {
+          const arrayMatch = sanitized.match(/\"generatedTestCases\"\s*:\s*(\[[\s\S]*\])/);
+          if (arrayMatch && arrayMatch[1]) {
+            const reconstructed = `{"generatedTestCases": ${sanitizeJson(arrayMatch[1])}}`;
+            try {
+              parsed = tryParse(reconstructed);
+            } catch (_) {
+              // final fallback below
+            }
+          }
+        }
+
+        // Fallback 3: last-chance remove any trailing commas inside arrays/objects again and close braces if needed
+        if (!parsed) {
+          let repaired = sanitized.replace(/,\s*([}\]])/g, '$1');
+          if (/^\{[\s\S]*\]$/.test(repaired.trim())) {
+            repaired = repaired + '}';
+          }
+          parsed = tryParse(repaired);
+        }
+      }
+
+      rawOutputFromAI = parsed as GenerateTestCasesOutput;
+      console.log('✅ JSON parsed successfully');
     } catch (e: any) {
-      console.error("---RAW OPENROUTER REPLY (Test Case Gen) START---");
+      console.error("---RAW OLLAMA REPLY (Test Case Gen) START---");
       console.error(fullRawReplyForLogging);
-      console.error("---RAW OPENROUTER REPLY (Test Case Gen) END---");
-      console.error("Failed to parse JSON response from OpenRouter for test case generation:", e.message);
-      openRouterError = `L'IA a répondu dans un format JSON invalide pour la génération de tests. Début de la réponse : ${fullRawReplyForLogging.substring(0, 100)}${fullRawReplyForLogging.length > 100 ? '...' : '' }`;
+      console.error("---RAW OLLAMA REPLY (Test Case Gen) END---");
+      console.error("Failed to parse JSON response from Ollama for test case generation:", e.message);
+      
+      // Try to provide more helpful error message
+      const preview = fullRawReplyForLogging.substring(0, 300);
+      ollamaError = `L'IA a répondu dans un format JSON invalide pour la génération de tests. Erreur: ${e.message}. Début de la réponse : ${preview}${fullRawReplyForLogging.length > 300 ? '...' : '' }`;
     }
   } catch (error: any) {
-    console.error("Error calling OpenRouter API for test case generation:", error);
-    openRouterError = `Erreur de communication avec le service IA (OpenRouter) pour la génération de tests: ${error.message}`;
+    console.error("Error calling Ollama API for test case generation:", error);
+    ollamaError = error.message;
   }
 
-  if (openRouterError) {
-    throw new Error(openRouterError);
+  if (ollamaError) {
+    throw new Error(ollamaError);
   }
 
   if (!rawOutputFromAI || !rawOutputFromAI.generatedTestCases) {
