@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod';
-import { getOpenRouterChatCompletion } from '@/ai/openrouter/simple-chat';
+import { getOllamaChatCompletion } from '@/ai/ollama/chat';
 
 const CodeAssistantCodeExplanationInputSchema = z.object({
   code: z.string().describe('The Python code to explain.'),
@@ -25,7 +25,7 @@ export type CodeAssistantCodeExplanationOutput = z.infer<
   typeof CodeAssistantCodeExplanationOutputSchema
 >;
 
-function constructOpenRouterPrompt(input: CodeAssistantCodeExplanationInput): string {
+function constructOllamaPrompt(input: CodeAssistantCodeExplanationInput): string {
   return `You are an AI code assistant that automatically adds comments to explain sections of code.
 Your task is to add comments to the provided Python code.
 
@@ -48,37 +48,49 @@ export async function codeAssistantCodeExplanation(
   input: CodeAssistantCodeExplanationInput
 ): Promise<CodeAssistantCodeExplanationOutput> {
   const validatedInput = CodeAssistantCodeExplanationInputSchema.parse(input);
-  const prompt = constructOpenRouterPrompt(validatedInput);
+  const prompt = constructOllamaPrompt(validatedInput);
 
   let rawOutputFromAI: Partial<CodeAssistantCodeExplanationOutput> | null = null;
-  let openRouterError: string | null = null;
+  let ollamaError: string | null = null;
   let fullRawReplyForLogging: string = "";
 
   try {
-    const openRouterResponse = await getOpenRouterChatCompletion({ userMessage: prompt });
-    fullRawReplyForLogging = openRouterResponse.reply;
+    const ollamaResponse = await getOllamaChatCompletion({ userMessage: prompt });
+    fullRawReplyForLogging = ollamaResponse.reply;
 
     try {
-      let replyText = openRouterResponse.reply;
-      const jsonMarkdownMatch = replyText.match(/```json\s*([\s\S]*?)\s*```/);
+      let replyText = ollamaResponse.reply.trim();
+      
+      // Try to extract JSON from markdown code blocks first
+      const jsonMarkdownMatch = replyText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
-        replyText = jsonMarkdownMatch[1];
+        replyText = jsonMarkdownMatch[1].trim();
       }
+      
+      // If the response doesn't start with {, try to find the JSON object
+      if (!replyText.startsWith('{')) {
+        const jsonMatch = replyText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          replyText = jsonMatch[0];
+        }
+      }
+      
+      console.log('🔍 Attempting to parse JSON:', replyText.substring(0, 200) + '...');
       rawOutputFromAI = JSON.parse(replyText) as CodeAssistantCodeExplanationOutput;
     } catch (e: any) {
-      console.error("---RAW OPENROUTER REPLY (Code Explanation) START---");
+      console.error("---RAW OLLAMA REPLY (Code Explanation) START---");
       console.error(fullRawReplyForLogging);
-      console.error("---RAW OPENROUTER REPLY (Code Explanation) END---");
-      console.error("Failed to parse JSON response from OpenRouter for code explanation:", e.message);
-      openRouterError = `L'IA a répondu dans un format JSON invalide pour l'explication de code. Début de la réponse : ${fullRawReplyForLogging.substring(0, 100)}${fullRawReplyForLogging.length > 100 ? '...' : '' }`;
+      console.error("---RAW OLLAMA REPLY (Code Explanation) END---");
+      console.error("Failed to parse JSON response from Ollama for code explanation:", e.message);
+      ollamaError = `L'IA a répondu dans un format JSON invalide pour l'explication de code. Début de la réponse : ${fullRawReplyForLogging.substring(0, 100)}${fullRawReplyForLogging.length > 100 ? '...' : '' }`;
     }
   } catch (error: any) {
-    console.error("Error calling OpenRouter API for code explanation:", error);
-    openRouterError = `Erreur de communication avec le service IA (OpenRouter) pour l'explication de code: ${error.message}`;
+    console.error("Error calling Ollama API for code explanation:", error);
+    ollamaError = error.message;
   }
 
-  if (openRouterError) {
-    throw new Error(openRouterError);
+  if (ollamaError) {
+    throw new Error(ollamaError);
   }
   
   if (!rawOutputFromAI || typeof rawOutputFromAI.explainedCode !== 'string') {

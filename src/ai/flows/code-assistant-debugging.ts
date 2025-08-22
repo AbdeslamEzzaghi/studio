@@ -11,7 +11,7 @@
  */
 
 import { z } from 'zod';
-import { getOpenRouterChatCompletion } from '@/ai/openrouter/simple-chat';
+import { getOllamaChatCompletion } from '@/ai/ollama/chat';
 
 const CodeAssistantDebuggingInputSchema = z.object({
   code: z.string().describe('The Python code to debug.'),
@@ -25,7 +25,7 @@ const CodeAssistantDebuggingOutputSchema = z.object({
 });
 export type CodeAssistantDebuggingOutput = z.infer<typeof CodeAssistantDebuggingOutputSchema>;
 
-function constructOpenRouterPrompt(input: CodeAssistantDebuggingInput): string {
+function constructOllamaPrompt(input: CodeAssistantDebuggingInput): string {
   return `Tu es un assistant pédagogique IA spécialisé en programmation Python pour des lycéens ou étudiants débutants.
 Le code d'un étudiant a produit une erreur. Ta tâche est d'expliquer cette erreur à l'étudiant en **français**, de manière **concise et claire**.
 
@@ -66,38 +66,57 @@ Assure-toi que ta réponse est UNIQUEMENT l'objet JSON.
 
 export async function codeAssistantDebugging(input: CodeAssistantDebuggingInput): Promise<CodeAssistantDebuggingOutput> {
   const validatedInput = CodeAssistantDebuggingInputSchema.parse(input);
-  const prompt = constructOpenRouterPrompt(validatedInput);
+  const prompt = constructOllamaPrompt(validatedInput);
 
   let rawOutputFromAI: Partial<CodeAssistantDebuggingOutput> | null = null;
-  let openRouterError: string | null = null;
+  let ollamaError: string | null = null;
   let fullRawReplyForLogging: string = "";
 
   try {
-    const openRouterResponse = await getOpenRouterChatCompletion({ userMessage: prompt });
-    fullRawReplyForLogging = openRouterResponse.reply;
+    const ollamaResponse = await getOllamaChatCompletion({ userMessage: prompt });
+    fullRawReplyForLogging = ollamaResponse.reply;
 
     try {
-      let replyText = openRouterResponse.reply;
-      const jsonMarkdownMatch = replyText.match(/```json\s*([\s\S]*?)\s*```/);
-      if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
-        replyText = jsonMarkdownMatch[1];
-      }
-      rawOutputFromAI = JSON.parse(replyText) as CodeAssistantDebuggingOutput;
+      let replyText = ollamaResponse.reply.trim();
+      // Extract from code fences
+      const jsonFence = replyText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonFence && jsonFence[1]) replyText = jsonFence[1].trim();
 
+      // If not starting with {, try to find object
+      if (!replyText.startsWith('{')) {
+        const obj = replyText.match(/\{[\s\S]*\}/);
+        if (obj) replyText = obj[0];
+      }
+
+      // Sanitize quotes and trailing commas
+      const sanitize = (s: string) => s.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/,\s*([}\]])/g, '$1');
+      const sanitized = sanitize(replyText);
+
+      try {
+        rawOutputFromAI = JSON.parse(sanitized) as CodeAssistantDebuggingOutput;
+      } catch {
+        // Fallbacks
+        const sugMatch = sanitized.match(/"suggestions"\s*:\s*"([\s\S]*?)"\s*\}?$/);
+        if (sugMatch && sugMatch[1]) {
+          rawOutputFromAI = { suggestions: sugMatch[1] } as CodeAssistantDebuggingOutput;
+        } else {
+          rawOutputFromAI = { suggestions: ollamaResponse.reply.trim() } as CodeAssistantDebuggingOutput;
+        }
+      }
     } catch (e: any) {
-      console.error("---RAW OPENROUTER REPLY (Debugging) START---");
+      console.error("---RAW OLLAMA REPLY (Debugging) START---");
       console.error(fullRawReplyForLogging);
-      console.error("---RAW OPENROUTER REPLY (Debugging) END---");
-      console.error("Failed to parse JSON response from OpenRouter for debugging:", e.message);
-      openRouterError = `L'IA a répondu dans un format JSON invalide pour l'assistance au débogage. Début de la réponse : ${fullRawReplyForLogging.substring(0, 100)}${fullRawReplyForLogging.length > 100 ? '...' : '' }`;
+      console.error("---RAW OLLAMA REPLY (Debugging) END---");
+      console.error("Failed initial JSON parse for debugging; used fallback:", e.message);
+      // Do not set ollamaError; we constructed a fallback above
     }
   } catch (error: any) {
-    console.error("Error calling OpenRouter API for debugging assistance:", error);
-    openRouterError = `Erreur de communication avec le service IA (OpenRouter) pour l'assistance au débogage: ${error.message}`;
+    console.error("Error calling Ollama API for debugging assistance:", error);
+    ollamaError = error.message;
   }
 
-  if (openRouterError) {
-    throw new Error(openRouterError);
+  if (ollamaError) {
+    throw new Error(ollamaError);
   }
 
   if (!rawOutputFromAI || typeof rawOutputFromAI.suggestions !== 'string') {

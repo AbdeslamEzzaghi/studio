@@ -1,16 +1,18 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Toolbar } from '@/components/ide/Toolbar';
 import { EditorPanel } from '@/components/ide/EditorPanel';
 import { TestCasesInputPanel } from '@/components/ide/TestCasesInputPanel';
 import { TestResultsPanel } from '@/components/ide/TestResultsPanel';
 import { useToast } from '@/hooks/use-toast';
-import { executePythonCode } from '@/ai/flows/execute-python-code';
+import { runPythonLocally } from '@/lib/pyExec';
+import { analyzePythonError } from '@/lib/errorAnalyzer';
 import { generateTestCasesForCode, type GenerateTestCasesOutput } from '@/ai/flows/generate-test-cases-flow';
 import { codeAssistantDebugging } from '@/ai/flows/code-assistant-debugging';
+import { explainTestFailure } from '@/ai/flows/test-failure-explanation';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +41,8 @@ export interface TestCase {
 export interface TestResult extends TestCase {
   actualOutput: string;
   passed: boolean;
+  isLoadingExplanation?: boolean;
+  failureExplanation?: string;
 }
 
 const initialTestCases: TestCase[] = [
@@ -58,6 +62,7 @@ interface ErrorDialogContent {
   aiExplanation: string;
   rawError?: string;
   codeSnapshot?: string;
+  errorLine?: number;
 }
 
 export default function IdePage() {
@@ -69,14 +74,97 @@ export default function IdePage() {
   const [isFetchingExplanation, setIsFetchingExplanation] = useState<boolean>(false);
   const [fileName, setFileName] = useState<string>('script.py');
   const { toast } = useToast();
+  const extractErrorLine = useCallback((errorText?: string): number | undefined => {
+    if (!errorText) return undefined;
+    const m = errorText.match(/line\s+(\d+)/i);
+    if (!m) return undefined;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) ? n : undefined;
+  }, []);
+
+  // Normalizes stdout for fair comparison with expected output.
+  // - trims whitespace
+  // - uses the last non-empty line (so input() prompts don't cause failures)
+  // - keeps a simple string for matching
+  const normalizeForCompare = useCallback((text: string): string => {
+    const lines = text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) return '';
+    return lines[lines.length - 1];
+  }, []);
+
 
   const [errorDialogIsOpen, setErrorDialogIsOpen] = useState<boolean>(false);
   const [errorForDialog, setErrorForDialog] = useState<ErrorDialogContent | null>(null);
+  useEffect(() => {
+    if (errorDialogIsOpen && errorLineRef.current) {
+      try { errorLineRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+    }
+  }, [errorDialogIsOpen, errorForDialog?.errorLine]);
+  const errorLineRef = useRef<HTMLDivElement | null>(null);
 
   const handleCleanCode = useCallback(() => {
     setCode('');
     toast({ title: 'Code Nettoyé', description: "L'éditeur a été vidé." });
   }, [toast]);
+
+  const handleRequestExplanation = useCallback(async (testResult: TestResult) => {
+    if (!testResult || testResult.passed) return;
+
+    // Update the specific test result to show loading state
+    setTestResults(prev => prev.map(result => 
+      result.id === testResult.id 
+        ? { ...result, isLoadingExplanation: true }
+        : result
+    ));
+
+    try {
+      const explanation = await explainTestFailure({
+        code: code,
+        testName: testResult.name,
+        inputs: testResult.inputs,
+        expectedOutput: testResult.expectedOutput,
+        actualOutput: testResult.actualOutput,
+      });
+
+      // Update the test result with the explanation
+      setTestResults(prev => prev.map(result => 
+        result.id === testResult.id 
+          ? { 
+              ...result, 
+              isLoadingExplanation: false, 
+              failureExplanation: explanation.explanation 
+            }
+          : result
+      ));
+
+      toast({ 
+        title: 'Explication Générée', 
+        description: 'L\'IA a analysé l\'échec du test et fourni une explication.' 
+      });
+
+    } catch (error: any) {
+      // Update the test result to remove loading state
+      setTestResults(prev => prev.map(result => 
+        result.id === testResult.id 
+          ? { ...result, isLoadingExplanation: false }
+          : result
+      ));
+
+      let errorMessage = "Impossible d'obtenir une explication de l'IA.";
+      if (isAIServiceError(error.message)) {
+        errorMessage = "Le service IA est temporairement indisponible. Veuillez réessayer plus tard.";
+      }
+
+      toast({ 
+        title: 'Erreur d\'Explication', 
+        description: errorMessage,
+        variant: 'destructive' 
+      });
+    }
+  }, [code, toast]);
 
   const isAIServiceError = (errorMessage: string): boolean => {
     const lowerCaseMessage = errorMessage.toLowerCase();
@@ -112,9 +200,20 @@ export default function IdePage() {
 
       try {
         const joinedInputs = testCase.inputs.join('\n');
-        const execResult = await executePythonCode({ code, testInput: joinedInputs });
+        const execResult = await runPythonLocally({ code, testInput: joinedInputs });
         
         if (execResult.errorOutput) {
+          const expectedIsError = testCase.expectedOutput.trim().toUpperCase() === 'ERROR';
+          if (expectedIsError) {
+            // This test expects an error: mark as passed and do not invoke AI explanation
+            currentTestRunResults.push({
+              ...testCase,
+              actualOutput: 'ERREUR (attendue)\n' + execResult.errorOutput,
+              passed: true,
+            });
+            setTestResults([...currentTestRunResults]);
+            continue; // proceed to next test
+          }
           anErrorOccurred = true;
           allTestsPassedOverall = false;
           currentTestRunResults.push({
@@ -131,16 +230,25 @@ export default function IdePage() {
           });
 
           try {
-            const debugInfo = await codeAssistantDebugging({
-              code: code,
-              errors: execResult.errorOutput,
-              output: execResult.successOutput || "", 
-            });
+            // First try deterministic local analysis
+            const analysis = analyzePythonError(execResult.errorOutput, code);
+            let explanation = analysis.explanation;
+
+            // If not confident, fallback to AI explainer
+            if (!analysis.confident) {
+              const debugInfo = await codeAssistantDebugging({
+                code: code,
+                errors: execResult.errorOutput,
+                output: execResult.successOutput || "", 
+              });
+              explanation = debugInfo.suggestions;
+            }
             setErrorForDialog({
               title: "Explication de l'Erreur (IA)",
-              aiExplanation: debugInfo.suggestions,
+              aiExplanation: explanation,
               rawError: execResult.errorOutput,
               codeSnapshot: code,
+              errorLine: extractErrorLine(execResult.errorOutput),
             });
           } catch (debugErr: any) {
             let aiExplanationMessage = `L'assistant IA n'a pas pu fournir d'explication. Erreur brute:\n${execResult.errorOutput}`;
@@ -163,6 +271,7 @@ export default function IdePage() {
               aiExplanation: aiExplanationMessage,
               rawError: execResult.errorOutput,
               codeSnapshot: code,
+              errorLine: extractErrorLine(execResult.errorOutput),
             });
           } finally {
             setIsFetchingExplanation(false);
@@ -170,15 +279,29 @@ export default function IdePage() {
           }
           break; 
         } else if (execResult.successOutput !== null) {
-          const actual = execResult.successOutput.trim();
-          const expected = testCase.expectedOutput.trim();
-          const passed = actual === expected;
+          // If the test expects an error but code succeeded, it's a fail
+          const expectedIsError = testCase.expectedOutput.trim().toUpperCase() === 'ERROR';
+          if (expectedIsError) {
+            allTestsPassedOverall = false;
+            currentTestRunResults.push({
+              ...testCase,
+              actualOutput: execResult.successOutput,
+              passed: false,
+            });
+            setTestResults([...currentTestRunResults]);
+            continue;
+          }
+          const actualRaw = execResult.successOutput;
+          const actual = normalizeForCompare(actualRaw);
+          const expected = normalizeForCompare(testCase.expectedOutput);
+          // Pass if exact on normalized last line OR if the full stdout contains expected
+          const passed = actual === expected || actualRaw.includes(expected);
           if (!passed) {
             allTestsPassedOverall = false;
           }
           currentTestRunResults.push({
             ...testCase,
-            actualOutput: actual,
+            actualOutput: actualRaw,
             passed,
           });
         } else { 
@@ -378,7 +501,11 @@ export default function IdePage() {
             </Panel>
             <PanelResizeHandle className="h-px bg-border hover:bg-primary transition-colors data-[resize-handle-state=drag]:bg-primary my-1 self-stretch" />
             <Panel defaultSize={50} minSize={25} className="min-h-0 pt-1">
-               <TestResultsPanel results={testResults} isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0 && !errorDialogIsOpen} />
+               <TestResultsPanel 
+                 results={testResults} 
+                 isTesting={isProcessing && testResults.length < userTestCases.length && userTestCases.length > 0 && !errorDialogIsOpen}
+                 onRequestExplanation={handleRequestExplanation}
+               />
             </Panel>
           </PanelGroup>
         </Panel>
@@ -414,7 +541,21 @@ export default function IdePage() {
                   <p className="font-semibold pt-2">Code Concerné:</p>
                   <ScrollArea className="h-40 w-full rounded-md border p-2 bg-muted/50">
                     <pre className="text-xs whitespace-pre-wrap break-all font-mono">
-                      {errorForDialog.codeSnapshot}
+                      {errorForDialog.codeSnapshot.split('\n').map((ln, idx) => {
+                        const lineNo = idx + 1;
+                        const isErr = errorForDialog.errorLine && lineNo === errorForDialog.errorLine;
+                        const numClass = isErr ? 'text-red-600 font-semibold' : 'text-muted-foreground';
+                        const lineClass = isErr ? 'bg-red-500/10 rounded px-1 -mx-1 ring-1 ring-red-500/30' : undefined;
+                        return (
+                          <div key={idx} ref={isErr ? errorLineRef : undefined} className={lineClass}>
+                            <span className={`${numClass} select-none mr-2`}>{`${lineNo}-`}</span>
+                            <span>{ln}</span>
+                            {isErr && (
+                              <span className="ml-2 text-red-600 font-semibold">← erreur ici</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </pre>
                   </ScrollArea>
                 </>

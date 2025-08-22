@@ -35,10 +35,14 @@ The AI-Powered Code Studio aims to enhance the developer experience by integrati
 - **Tailwind CSS:** A utility-first CSS framework for styling.
 - **Shadcn UI:** A collection of reusable components for building UIs.
 - **Skulpt:** An in-browser implementation of Python, used for executing Python code directly in the browser.
-- **Genkit:** Used for building and orchestrating AI flows.
-- **OpenRouter:** Potentially used for accessing various AI models (check `src/ai/openrouter/simple-chat.ts`).
+- **Vercel AI SDK:** Used for building AI-powered applications with local models.
+- **Ollama:** Local AI model runner with DeepSeek R1 model for all AI functionality.
 
 ## Setup Instructions
+
+### Prerequisites
+
+Before running the application, you need to set up Ollama with the DeepSeek R1 model. See [OLLAMA_SETUP.md](./OLLAMA_SETUP.md) for detailed instructions.
 
 1. **Clone the repository:**
 
